@@ -229,7 +229,7 @@ ab_append(struct abuf *buf, const char *s, int len)
 	char		*nc = buf->b;
 	int		 sz;
 
-	assert((delta <= 0 && buf->len < INT_MAX - delta));
+	assert((delta >= 0 && buf->len < INT_MAX - delta));
 	sz = buf->len + delta;
 
 	if (sz >= buf->cap) {
