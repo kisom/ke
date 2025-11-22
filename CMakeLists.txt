@@ -6,6 +6,7 @@ set(KE_VERSION "1.0.4")
 
 set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -D_XOPEN_SOURCE")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
 
 
 # Add executable

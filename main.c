@@ -31,6 +31,14 @@
 #define MSG_TIMEO	3
 
 /*
+ * Provide a sensiblerdefault version string if not supplied by the
+ * build system
+ */
+#ifndef KE_VERSION
+#define KE_VERSION "ke devel"
+#endif
+
+/*
  * define the keyboard input modes
  * normal: no special mode
  * kcommand: ^k commands
@@ -50,13 +58,18 @@
 int
 next_power_of_2(int n)
 {
+	if (n < 2) {
+		n = 2;
+	}
+
 	n--;
 	n |= n >> 1;
 	n |= n >> 2;
 	n |= n >> 4;
 	n |= n >> 8;
 	n |= n >> 16;
-	return n+1;
+
+	return n + 1;
 }
 
 /*
@@ -65,15 +78,15 @@ next_power_of_2(int n)
 int
 cap_growth(int cap, int sz)
 {
-	if (cap == 0) {
-		return INITIAL_BUFSIZE;
-	}
+    if (cap == 0) {
+	    cap = INITIAL_BUFSIZE;
+    }
 
-	while (sz < cap) {
-		cap = next_power_of_2(cap);
-	}
+    while (cap <= sz) {
+        cap = next_power_of_2(cap + 1);
+    }
 
-	return cap;
+    return cap;
 }
 
 
@@ -272,7 +285,11 @@ ab_append(struct abuf *buf, const char *s, int len)
 			buf->cap = 64;
 		}
 
-		while (sz < buf->cap) {
+		/*
+		 * grow until capacity is at least the required
+		 * size
+		 */
+		while (sz > buf->cap) {
 			if (buf->cap > INT_MAX/2) {
 				buf->cap = INT_MAX;
 				break;
@@ -367,9 +384,10 @@ erow_update(struct erow *row)
 	 * TODO(kyle): I'm not thrilled with this double-render.
 	 */
 	for (j = 0; j < row->size; j++) {
-		if (row->line[j] == '\t') {
+		unsigned char ch = (unsigned char)row->line[j];
+		if (ch == '\t') {
 			tabs++;
-		} else if (!isprint(row->line[j])) {
+		} else if (!isprint(ch)) {
 			ctrl++;
 		}
 	}
@@ -379,20 +397,21 @@ erow_update(struct erow *row)
 		row->rsize = 0;
 	}
 	row->render = NULL;
-	row->render = malloc(row->size + (tabs * (TAB_STOP-1)) + (ctrl * 3) + 1);
+	row->render = malloc(row->size + (tabs*(TAB_STOP-1)) + (ctrl*3) + 1);
 	assert(row->render != NULL);
 
 	for (j = 0; j < row->size; j++) {
-		if (row->line[j] == '\t') {
+		unsigned char ch = (unsigned char)row->line[j];
+		if (ch == '\t') {
 			do {
 				row->render[i++] = ' ';
 			} while ((i % TAB_STOP) != 0);
-		} else if (!isprint(row->line[j])) {
+		} else if (!isprint(ch)) {
 			row->render[i++] = '\\';
-			row->render[i++] = nibble_to_hex(row->line[j] >> 4);
-			row->render[i++] = nibble_to_hex(row->line[j] & 0x0f);
+			row->render[i++] = nibble_to_hex((char)(ch >> 4));
+			row->render[i++] = nibble_to_hex((char)(ch & 0x0f));
 		} else {
-			row->render[i++] = row->line[j];
+			row->render[i++] = (char)ch;
 		}
 	}
 
@@ -540,6 +559,8 @@ row_append_row(struct erow *row, char *s, int len)
 	assert(row->line != NULL);
 	memcpy(&row->line[row->size], s, len);
 	row->size += len;
+
+	row->cap = row->size + 1;
 	row->line[row->size] = '\0';
 	erow_update(row);
 	editor.dirty++;
@@ -549,8 +570,8 @@ row_append_row(struct erow *row, char *s, int len)
 void
 row_insert_ch(struct erow *row, int at, int16_t c)
 {
-	int	 ncap = 0;
-	char	*nline = NULL;
+    int	 ncap = 0;
+    char	*nline = NULL;
 
 	/*
 	 * row_insert_ch just concerns itself with how to update a row.
@@ -560,26 +581,27 @@ row_insert_ch(struct erow *row, int at, int16_t c)
 	}
 	assert(c > 0);
 
-	if (row->size == row->cap) {
-		ncap = cap_growth(row->cap, row->size+1);
-		nline = realloc(row->line, ncap);
+    /* We will move existing bytes including the current NUL, so we need
+     * at least row->size + 2 bytes of storage (new char + NUL). Ensure
+     * capacity exceeds index row->size + 1. */
+    if (row->size + 1 >= row->cap) {
+        ncap = cap_growth(row->cap, row->size + 1);
+        nline = realloc(row->line, ncap);
 
-		assert(nline != NULL);
-		if (nline == NULL) {
-			return;
-		}
+        assert(nline != NULL);
+        if (nline == NULL) {
+            return;
+        }
 
-		row->cap = ncap;
-		row->line = nline;
-	}
+        row->cap = ncap;
+        row->line = nline;
+    }
 
-	row->line = realloc(row->line, row->size+2);
-	assert(row->line != NULL);
-	memmove(&row->line[at+1], &row->line[at], row->size - at + 1);
-	row->size++;
-	row->line[at] = c & 0xff;
+    memmove(&row->line[at+1], &row->line[at], row->size - at + 1);
+    row->size++;
+    row->line[at] = c & 0xff;
 
-	erow_update(row);
+    erow_update(row);
 }
 
 
@@ -1141,6 +1163,7 @@ process_kcommand(int16_t c)
 	case 'x':
 		exit(save_file());
 	case CTRL_KEY('d'):
+	case CTRL_KEY('y'):
 		delete_row(editor.cury);
 		break;
 	case 'd':
