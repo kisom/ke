@@ -6,4 +6,6 @@ used fairly often.
 
 See the man page for more info.
 
+It should be available via homebrew, even.
+
 Released under an ISC license.
