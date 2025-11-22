@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 project(ke C)  # Specify C language explicitly
 
 set(CMAKE_C_STANDARD 99)
-set(KE_VERSION "0.9.3")
+set(KE_VERSION "1.0.0")
 
 # Add executable
 add_executable(ke main.c)
