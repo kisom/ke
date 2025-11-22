@@ -364,7 +364,7 @@ erow_update(struct erow *row)
 		}
 	}
 
-	if (row->rsize) {
+	if (row->rsize || row->render != NULL) {
 		free(row->render);
 		row->rsize = 0;
 	}
