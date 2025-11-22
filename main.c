@@ -362,8 +362,6 @@ erow_update(struct erow *row)
 	int	i = 0, j;
 	int	tabs = 0;
 	int	ctrl = 0;
-	int	rszp = 0;
-	int	ncap = row->cap;
 
 	/*
 	 * TODO(kyle): I'm not thrilled with this double-render.
@@ -376,14 +374,13 @@ erow_update(struct erow *row)
 		}
 	}
 
-	rszp = tabs * (TAB_STOP-1) + ctrl * 3;
-	if (rszp > row->cap) {
-		while (ncap < rszp) ncap = cap_growth(row->cap, rszp);
-
-		row->render = realloc(row->render, ncap);
-		assert(row->render != NULL);
-		row->cap = ncap;
+	if (row->rsize) {
+		free(row->render);
+		row->rsize = 0;
 	}
+	row->render = NULL;
+	row->render = malloc(row->size + (tabs * (TAB_STOP-1)) + (ctrl * 3) + 1);
+	assert(row->render != NULL);
 
 	for (j = 0; j < row->size; j++) {
 		if (row->line[j] == '\t') {
