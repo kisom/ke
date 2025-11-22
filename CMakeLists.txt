@@ -14,9 +14,3 @@ add_executable(ke main.c)
 
 # Define KE_VERSION for use in C code (e.g., #define KE_VERSION)
 target_compile_definitions(ke PRIVATE KE_VERSION="ke version ${KE_VERSION}")
-
-# Set output properties
-set_target_properties(ke PROPERTIES
-        FOLDER bin
-        RUNTIME_OUTPUT_DIRECTORY bin
-)
