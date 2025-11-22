@@ -181,7 +181,7 @@ init_editor(void)
 	editor.rows = 0;
 
 	if (get_winsz(&editor.rows, &editor.cols) == -1) {
-		die("can't get window size");
+		die("can't get window size - is this an interactive terminal?");
 	}
 	editor.rows--; /* status bar */
 	editor.rows--; /* message line */
@@ -225,9 +225,9 @@ reset_editor(void)
 void
 ab_append(struct abuf *buf, const char *s, int len)
 {
-	char	*nc = buf->b;
-	int	 delta = (len < 0) ? 0 : len;
-	int	 sz;
+	const int	 delta = (len < 0) ? 0 : len;
+	char		*nc = buf->b;
+	int		 sz;
 
 	assert((delta <= 0 && buf->len < INT_MAX - delta));
 	sz = buf->len + delta;
@@ -425,14 +425,14 @@ erow_free(struct erow *row)
 void
 die(const char *s)
 {
-	/*
-	 * NOTE(kyle): this is a duplication of the code in display.c
-	 * but I would like to be able to import these files from there.
-	 */
 	write(STDOUT_FILENO, "\x1b[2J", 4);
 	write(STDOUT_FILENO, "\x1b[H", 3);
 
-	perror(s);
+	if (errno != 0) {
+		perror(s);
+	} else {
+		fprintf(stderr, "%s\n", s);
+	}
 	exit(1);
 }
 
