@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -71,6 +72,7 @@ struct erow {
 char	 nibble_to_hex(char c);
 int	 erow_render_to_cursor(struct erow *row, int cx);
 int	 erow_cursor_to_render(struct erow *row, int rx);
+int	 erow_init(struct erow *row, int len);
 void	 erow_update(struct erow *row);
 void	 erow_insert(int at, char *s, int len);
 void	 erow_free(struct erow *row);
@@ -100,6 +102,7 @@ void		 move_cursor(int16_t c);
 void		 newline(void);
 void		 process_kcommand(int16_t c);
 void		 process_normal(int16_t c);
+void		 navonly_escape(int16_t c);
 void		 process_escape(int16_t c);
 int		 process_keypress(void);
 void		 enable_termraw(void);
@@ -199,7 +202,8 @@ init_editor(void)
 
 
 /*
- * reset_editor presumes that editor has been initialized.
+ * reset_editor presumes that editor has been initialized. That is,
+ * before reset_editor is called, init_editor should be called.
  */
 void
 reset_editor(void)
@@ -222,23 +226,36 @@ void
 ab_append(struct abuf *buf, const char *s, int len)
 {
 	char	*nc = buf->b;
-	int	 sz = buf->len + len;
+	int	 delta = (len < 0) ? 0 : len;
+	int	 sz;
+
+	assert((delta <= 0 && buf->len < INT_MAX - delta));
+	sz = buf->len + delta;
 
 	if (sz >= buf->cap) {
-		while (sz > buf->cap) {
-			if (buf->cap == 0) {
-				buf->cap = 1;
-			} else {
-				buf->cap *= 2;
-			}
+		if (buf->cap == 0) {
+			buf->cap = 1;
 		}
+
+		while (sz > buf->cap) {
+			if (buf->cap < INT_MAX/2) {
+				buf->cap *= INT_MAX;
+				break;
+			}
+			buf->cap *= 2;
+		}
+
+		assert(sz <= buf->cap);
+
 		nc = realloc(nc, buf->cap);
 		assert(nc != NULL);
 	}
 
-	memcpy(&nc[buf->len], s, len);
-	buf->b = nc;
-	buf->len += len; /* DANGER: overflow */
+	if (delta > 0) {
+		memcpy(&nc[buf->len], s, (size_t)delta);
+		buf->b = nc;
+		buf->len += delta;
+	}
 }
 
 
@@ -349,29 +366,47 @@ erow_update(struct erow *row)
 }
 
 
+int
+erow_init(struct erow *row, int len)
+{
+	row->size = len;
+	row->rsize = 0;
+	row->render = NULL;
+	row->line = NULL;
+
+	row->line = malloc(len+1);
+	assert(row->line != NULL);
+	if (row->line == NULL) {
+		return -1;
+	}
+
+	row->line[len] = '\0';
+	return 0;
+}
+
+
 void
 erow_insert(int at, char *s, int len)
 {
+	struct erow	row;
+
 	if (at < 0 || at > editor.nrows) {
 		return;
 	}
+
+	assert(erow_init(&row, len) == 0);
+	memcpy(row.line, s, len);
+	row.line[len] = 0;
 
 	editor.row = realloc(editor.row, sizeof(struct erow) * (editor.nrows + 1));
 	assert(editor.row != NULL);
 
 	if (at < editor.nrows) {
 		memmove(&editor.row[at+1], &editor.row[at],
-		    sizeof(struct erow) * (editor.nrows - at + 1));
+		    sizeof(struct erow) * (editor.nrows - at));
 	}
 
-	editor.row[at].size = len;
-	editor.row[at].line = malloc(len+1);
-	memcpy(editor.row[at].line, s, len);
-	editor.row[at].line[len] = '\0';
-
-	editor.row[at].rsize = 0;
-	editor.row[at].render = NULL;
-
+	editor.row[at] = row;
 	erow_update(&editor.row[at]);
 	editor.nrows++;
 }
@@ -562,11 +597,10 @@ open_file(const char *filename)
 	ssize_t	 linelen;
 	FILE	*fp = NULL;
 
-	free(editor.filename);
+	reset_editor();
+
 	editor.filename = strdup(filename);
 	assert(editor.filename != NULL);
-
-	reset_editor();
 
 	editor.dirty = 0;
 	if ((fp = fopen(filename, "r")) == NULL) {
@@ -611,8 +645,13 @@ rows_to_buffer(int *buflen)
 	}
 
 	if (len == 0) {
+		if (buflen != NULL) {
+			*buflen = 0;
+		}
 		return NULL;
 	}
+
+	assert(buflen != NULL);
 
 	*buflen = len;
 	buf = malloc(len);
@@ -671,7 +710,7 @@ save_file(void)
 	status = 0;
 
 save_exit:
-	if (fd)		close(fd);
+	if (fd != -1)	close(fd);
 	if (buf) {
 		free(buf);
 		buf = NULL;
@@ -917,10 +956,11 @@ editor_openfile(void)
 		return;
 	}
 
-	free(editor.row);
-	init_editor();
 
+	/* open_file() will handle freeing the previous file/buffer state
+	 * via reset_editor() and will strdup() the filename internally. */
 	open_file(filename);
+	free(filename);
 }
 
 
@@ -1138,7 +1178,25 @@ process_normal(int16_t c)
 void
 process_escape(int16_t c)
 {
-	struct erow	*row = &editor.row[editor.cury];
+	struct erow	*row = NULL;
+
+	/* if there are no rows, there's nothing to do */
+	if (editor.nrows <= 0) {
+		return;
+	}
+
+	if (editor.cury <0) {
+		editor.cury = 0;
+	} else if (editor.cury >= editor.nrows) {
+		editor.cury = editor.nrows - 1;
+	}
+
+	row = &editor.row[editor.cury];
+	if (editor.curx < 0) {
+		editor.curx = 0;
+	} else if (editor.curx > row->size) {
+		editor.curx = row->size;
+	}
 
 	editor_set_status("hi");
 
@@ -1152,7 +1210,12 @@ process_escape(int16_t c)
 		editor.curx = 0;
 		break;
 	case BACKSPACE:
-		if (isalnum(row->line[editor.curx])) {
+		row = &editor.row[editor.cury]; /* cury may have changed */
+		if (editor.curx == 0 || editor.curx < row->size) {
+			break;
+		}
+
+		if ((unsigned char)isalnum(row->line[editor.curx])) {
 			editor_set_status("is alnum");
 			while (editor.curx > 0 && isalnum(row->line[editor.curx])) {
 				process_normal(BACKSPACE);
@@ -1281,7 +1344,8 @@ draw_rows(struct abuf *ab)
 {
 	assert(editor.cols >= 0);
 
-	char	buf[editor.cols];
+	int	cols = editor.cols > 0 ? editor.cols : 1;
+	char	buf[cols];
 	int	buflen, filerow, padding;
 	int	y;
 
