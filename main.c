@@ -14,7 +14,6 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <limits.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,18 +24,14 @@
 #include <unistd.h>
 
 
+#ifndef KE_VERSION
+#define KE_VERSION	"ke dev build"
+#endif
+
 #define ESCSEQ		"\x1b["
 #define	CTRL_KEY(key)	((key)&0x1f)
 #define TAB_STOP	8
 #define MSG_TIMEO	3
-
-/*
- * Provide a sensiblerdefault version string if not supplied by the
- * build system
- */
-#ifndef KE_VERSION
-#define KE_VERSION "ke devel"
-#endif
 
 /*
  * define the keyboard input modes
@@ -52,8 +47,7 @@
 #define	TAB_STOP	8
 
 
-#define	INITIAL_BUFSIZE		64
-
+#define INITIAL_CAPACITY	64
 
 int
 next_power_of_2(int n)
@@ -72,21 +66,19 @@ next_power_of_2(int n)
 	return n + 1;
 }
 
-/*
- * cap_growth is a generalized strategy to growing buffers.
- */
+
 int
 cap_growth(int cap, int sz)
 {
-    if (cap == 0) {
-	    cap = INITIAL_BUFSIZE;
-    }
+	if (cap == 0) {
+		cap = INITIAL_CAPACITY;
+	}
 
-    while (cap <= sz) {
-        cap = next_power_of_2(cap + 1);
-    }
+	while (cap <= sz) {
+		cap = next_power_of_2(cap + 1);
+	}
 
-    return cap;
+	return cap;
 }
 
 
@@ -120,8 +112,8 @@ struct erow {
 char	 nibble_to_hex(char c);
 int	 erow_render_to_cursor(struct erow *row, int cx);
 int	 erow_cursor_to_render(struct erow *row, int rx);
-int	 erow_init(struct erow *row, int len);
 void	 erow_update(struct erow *row);
+int	 erow_init(struct erow *row, int len);
 void	 erow_insert(int at, char *s, int len);
 void	 erow_free(struct erow *row);
 void	 editor_set_status(const char *fmt, ...);
@@ -150,7 +142,6 @@ void		 move_cursor(int16_t c);
 void		 newline(void);
 void		 process_kcommand(int16_t c);
 void		 process_normal(int16_t c);
-void		 navonly_escape(int16_t c);
 void		 process_escape(int16_t c);
 int		 process_keypress(void);
 void		 enable_termraw(void);
@@ -229,7 +220,7 @@ init_editor(void)
 	editor.rows = 0;
 
 	if (get_winsz(&editor.rows, &editor.cols) == -1) {
-		// die("can't get window size - is this an interactive terminal?");
+		die("can't get window size");
 	}
 	editor.rows--; /* status bar */
 	editor.rows--; /* message line */
@@ -250,8 +241,7 @@ init_editor(void)
 
 
 /*
- * reset_editor presumes that editor has been initialized. That is,
- * before reset_editor is called, init_editor should be called.
+ * reset_editor presumes that editor has been initialized.
  */
 void
 reset_editor(void)
@@ -273,41 +263,24 @@ reset_editor(void)
 void
 ab_append(struct abuf *buf, const char *s, int len)
 {
-	const int	 delta = (len < 0) ? 0 : len;
-	char		*nc = buf->b;
-	int		 sz;
+	char	*nc = buf->b;
+	int	 sz = buf->len + len;
 
-	assert((delta >= 0 && buf->len < INT_MAX - delta));
-	sz = buf->len + delta;
-
-	if (sz > buf->cap) {
-		if (buf->cap == 0) {
-			buf->cap = 64;
-		}
-
-		/*
-		 * grow until capacity is at least the required
-		 * size
-		 */
+	if (sz >= buf->cap) {
 		while (sz > buf->cap) {
-			if (buf->cap > INT_MAX/2) {
-				buf->cap = INT_MAX;
-				break;
+			if (buf->cap == 0) {
+				buf->cap = 1;
+			} else {
+				buf->cap *= 2;
 			}
-			buf->cap *= 2;
 		}
-
-		assert(sz <= buf->cap);
-
 		nc = realloc(nc, buf->cap);
 		assert(nc != NULL);
 	}
 
-	if (delta > 0) {
-		memcpy(&nc[buf->len], s, (size_t)delta);
-		buf->b = nc;
-		buf->len += delta;
-	}
+	memcpy(&nc[buf->len], s, len);
+	buf->b = nc;
+	buf->len += len; /* DANGER: overflow */
 }
 
 
@@ -384,10 +357,9 @@ erow_update(struct erow *row)
 	 * TODO(kyle): I'm not thrilled with this double-render.
 	 */
 	for (j = 0; j < row->size; j++) {
-		unsigned char ch = (unsigned char)row->line[j];
-		if (ch == '\t') {
+		if (row->line[j] == '\t') {
 			tabs++;
-		} else if (!isprint(ch)) {
+		} else if (!isprint(row->line[j])) {
 			ctrl++;
 		}
 	}
@@ -397,21 +369,20 @@ erow_update(struct erow *row)
 		row->rsize = 0;
 	}
 	row->render = NULL;
-	row->render = malloc(row->size + (tabs*(TAB_STOP-1)) + (ctrl*3) + 1);
+	row->render = malloc(row->size + (tabs * (TAB_STOP-1)) + (ctrl * 3) + 1);
 	assert(row->render != NULL);
 
 	for (j = 0; j < row->size; j++) {
-		unsigned char ch = (unsigned char)row->line[j];
-		if (ch == '\t') {
+		if (row->line[j] == '\t') {
 			do {
 				row->render[i++] = ' ';
 			} while ((i % TAB_STOP) != 0);
-		} else if (!isprint(ch)) {
+		} else if (!isprint(row->line[j])) {
 			row->render[i++] = '\\';
-			row->render[i++] = nibble_to_hex((char)(ch >> 4));
-			row->render[i++] = nibble_to_hex((char)(ch & 0x0f));
+			row->render[i++] = nibble_to_hex(row->line[j] >> 4);
+			row->render[i++] = nibble_to_hex(row->line[j] & 0x0f);
 		} else {
-			row->render[i++] = (char)ch;
+			row->render[i++] = row->line[j];
 		}
 	}
 
@@ -480,14 +451,14 @@ erow_free(struct erow *row)
 void
 die(const char *s)
 {
+	/*
+	 * NOTE(kyle): this is a duplication of the code in display.c
+	 * but I would like to be able to import these files from there.
+	 */
 	write(STDOUT_FILENO, "\x1b[2J", 4);
 	write(STDOUT_FILENO, "\x1b[H", 3);
 
-	if (errno != 0) {
-		perror(s);
-	} else {
-		fprintf(stderr, "%s\n", s);
-	}
+	perror(s);
 	exit(1);
 }
 
@@ -559,8 +530,6 @@ row_append_row(struct erow *row, char *s, int len)
 	assert(row->line != NULL);
 	memcpy(&row->line[row->size], s, len);
 	row->size += len;
-
-	row->cap = row->size + 1;
 	row->line[row->size] = '\0';
 	erow_update(row);
 	editor.dirty++;
@@ -570,9 +539,6 @@ row_append_row(struct erow *row, char *s, int len)
 void
 row_insert_ch(struct erow *row, int at, int16_t c)
 {
-    int	 ncap = 0;
-    char	*nline = NULL;
-
 	/*
 	 * row_insert_ch just concerns itself with how to update a row.
 	 */
@@ -581,27 +547,13 @@ row_insert_ch(struct erow *row, int at, int16_t c)
 	}
 	assert(c > 0);
 
-    /* We will move existing bytes including the current NUL, so we need
-     * at least row->size + 2 bytes of storage (new char + NUL). Ensure
-     * capacity exceeds index row->size + 1. */
-    if (row->size + 1 >= row->cap) {
-        ncap = cap_growth(row->cap, row->size + 1);
-        nline = realloc(row->line, ncap);
+	row->line = realloc(row->line, row->size+2);
+	assert(row->line != NULL);
+	memmove(&row->line[at+1], &row->line[at], row->size - at + 1);
+	row->size++;
+	row->line[at] = c & 0xff;
 
-        assert(nline != NULL);
-        if (nline == NULL) {
-            return;
-        }
-
-        row->cap = ncap;
-        row->line = nline;
-    }
-
-    memmove(&row->line[at+1], &row->line[at], row->size - at + 1);
-    row->size++;
-    row->line[at] = c & 0xff;
-
-    erow_update(row);
+	erow_update(row);
 }
 
 
@@ -675,7 +627,7 @@ open_file(const char *filename)
 
 	editor.filename = strdup(filename);
 	assert(editor.filename != NULL);
-
+	
 	editor.dirty = 0;
 	if ((fp = fopen(filename, "r")) == NULL) {
 		if (errno == ENOENT) {
@@ -719,13 +671,8 @@ rows_to_buffer(int *buflen)
 	}
 
 	if (len == 0) {
-		if (buflen != NULL) {
-			*buflen = 0;
-		}
 		return NULL;
 	}
-
-	assert(buflen != NULL);
 
 	*buflen = len;
 	buf = malloc(len);
@@ -784,7 +731,7 @@ save_file(void)
 	status = 0;
 
 save_exit:
-	if (fd != -1)	close(fd);
+	if (fd)		close(fd);
 	if (buf) {
 		free(buf);
 		buf = NULL;
@@ -1030,11 +977,7 @@ editor_openfile(void)
 		return;
 	}
 
-
-	/* open_file() will handle freeing the previous file/buffer state
-	 * via reset_editor() and will strdup() the filename internally. */
 	open_file(filename);
-	free(filename);
 }
 
 
@@ -1163,7 +1106,6 @@ process_kcommand(int16_t c)
 	case 'x':
 		exit(save_file());
 	case CTRL_KEY('d'):
-	case CTRL_KEY('y'):
 		delete_row(editor.cury);
 		break;
 	case 'd':
@@ -1253,25 +1195,7 @@ process_normal(int16_t c)
 void
 process_escape(int16_t c)
 {
-	struct erow	*row = NULL;
-
-	/* if there are no rows, there's nothing to do */
-	if (editor.nrows <= 0) {
-		return;
-	}
-
-	if (editor.cury <0) {
-		editor.cury = 0;
-	} else if (editor.cury >= editor.nrows) {
-		editor.cury = editor.nrows - 1;
-	}
-
-	row = &editor.row[editor.cury];
-	if (editor.curx < 0) {
-		editor.curx = 0;
-	} else if (editor.curx > row->size) {
-		editor.curx = row->size;
-	}
+	struct erow	*row = &editor.row[editor.cury];
 
 	editor_set_status("hi");
 
@@ -1285,12 +1209,7 @@ process_escape(int16_t c)
 		editor.curx = 0;
 		break;
 	case BACKSPACE:
-		row = &editor.row[editor.cury]; /* cury may have changed */
-		if (editor.curx == 0 || editor.curx < row->size) {
-			break;
-		}
-
-		if ((unsigned char)isalnum(row->line[editor.curx])) {
+		if (isalnum(row->line[editor.curx])) {
 			editor_set_status("is alnum");
 			while (editor.curx > 0 && isalnum(row->line[editor.curx])) {
 				process_normal(BACKSPACE);
@@ -1419,8 +1338,7 @@ draw_rows(struct abuf *ab)
 {
 	assert(editor.cols >= 0);
 
-	int	cols = editor.cols > 0 ? editor.cols : 1;
-	char	buf[cols];
+	char	buf[editor.cols];
 	int	buflen, filerow, padding;
 	int	y;
 
@@ -1443,6 +1361,7 @@ draw_rows(struct abuf *ab)
 				ab_append(ab, "|", 1);
 			}
 		} else {
+			erow_update(&editor.row[filerow]);
 			buflen = editor.row[filerow].rsize - editor.coloffs;
 			if (buflen < 0) {
 				buflen = 0;
@@ -1451,7 +1370,6 @@ draw_rows(struct abuf *ab)
 			if (buflen > editor.cols) {
 				buflen = editor.cols;
 			}
-
 			ab_append(ab, editor.row[filerow].render+editor.coloffs,
 				  buflen);
 		}
@@ -1594,10 +1512,10 @@ editor_set_status(const char *fmt, ...)
 void
 loop(void)
 {
-	display_refresh();
+	int	up = 1; /* update on the first runthrough */
 
 	while (1) {
-		int update = 0;
+		if (up) display_refresh();
 
 		/*
 		 * ke should only refresh the display if it has received keyboard
@@ -1605,12 +1523,8 @@ loop(void)
 		 * handling pastes without massive screen flicker.
 		 *
 		 */
-		while (process_keypress()) {
-			update = 1;
-		}
-
-		if (update) {
-			display_refresh();
+		if ((up = process_keypress()) != 0) {
+			while (process_keypress()) ;
 		}
 	}
 }
