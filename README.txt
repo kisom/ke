@@ -11,4 +11,8 @@ It should be available via homebrew, even:
     brew tap kisom/homebrew-tap
     brew install ke
 
+To get verbose ASAN messages:
+
+    export LSAN_OPTIONS=verbosity=1:log_threads=1
+
 Released under an ISC license.

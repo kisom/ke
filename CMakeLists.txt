@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 project(ke C)  # Specify C language explicitly
 
 set(CMAKE_C_STANDARD 99)
-set(KE_VERSION "1.0.10")
+set(KE_VERSION "1.0.11")
 
 set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -D_XOPEN_SOURCE")
@@ -17,9 +17,14 @@ if (ENABLE_ASAN)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
 endif()
 
+include(GNUInstallDirs)
 
 # Add executable
 add_executable(ke main.c)
-
-# Define KE_VERSION for use in C code (e.g., #define KE_VERSION)
 target_compile_definitions(ke PRIVATE KE_VERSION="ke version ${KE_VERSION}")
+install(TARGETS ke RUNTIME DESTINATION bin)
+install(FILES ke.1 TYPE MAN)
+
+install(TARGETS ke RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES ke.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
+
