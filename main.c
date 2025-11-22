@@ -152,7 +152,70 @@ struct editor_t {
 	int		 dirtyex;
 	char		 msg[80];
 	time_t		 msgtm;
-} editor;
+} editor = {
+	.cols = 0,
+	.rows = 0,
+	.curx = 0,
+	.cury = 0,
+	.mode = 0,
+	.nrows = 0,
+	.rowoffs = 0,
+	.coloffs = 0,
+	.row = NULL,
+	.filename = NULL,
+	.dirty = 0,
+	.dirtyex = 0,
+};
+
+
+/*
+ * init_editor should set up the global editor struct.
+ */
+void
+init_editor(void)
+{
+	editor.cols = 0;
+	editor.rows = 0;
+
+	if (get_winsz(&editor.rows, &editor.cols) == -1) {
+		die("can't get window size");
+	}
+	editor.rows--; /* status bar */
+	editor.rows--; /* message line */
+
+	editor.curx = editor.cury = 0;
+	editor.rx = 0;
+
+	editor.nrows = 0;
+	editor.rowoffs = editor.coloffs = 0;
+	editor.row = NULL;
+
+	editor.msg[0] = '\0';
+	editor.msgtm = 0;
+
+	editor.dirty = 0;
+}
+
+
+
+/*
+ * reset_editor presumes that editor has been initialized.
+ */
+void
+reset_editor(void)
+{
+	for (int i = 0; i < editor.nrows; i++) {
+		erow_free(&editor.row[i]);
+	}
+	free(editor.row);
+
+	if (editor.filename != NULL) {
+		free(editor.filename);
+		editor.filename = NULL;
+	}
+
+	init_editor();
+}
 
 
 void
@@ -502,6 +565,8 @@ open_file(const char *filename)
 	free(editor.filename);
 	editor.filename = strdup(filename);
 	assert(editor.filename != NULL);
+
+	reset_editor();
 
 	editor.dirty = 0;
 	if ((fp = fopen(filename, "r")) == NULL) {
@@ -1405,35 +1470,6 @@ loop(void)
 			while (process_keypress()) ;
 		}
 	}
-}
-
-
-/*
- * init_editor should set up the global editor struct.
- */
-void
-init_editor(void)
-{
-	editor.cols = 0;
-	editor.rows = 0;
-
-	if (get_winsz(&editor.rows, &editor.cols) == -1) {
-		die("can't get window size");
-	}
-	editor.rows--; /* status bar */
-	editor.rows--; /* message line */
-
-	editor.curx = editor.cury = 0;
-	editor.rx = 0;
-
-	editor.nrows = 0;
-	editor.rowoffs = editor.coloffs = 0;
-	editor.row = NULL;
-
-	editor.msg[0] = '\0';
-	editor.msgtm = 0;
-
-	editor.dirty = 0;
 }
 
 
