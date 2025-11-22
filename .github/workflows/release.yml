@@ -26,7 +26,7 @@ jobs:
       - uses: mislav/bump-homebrew-formula-action@v3
         with:
           formula-name: ke
-          formula-path: Formula/kw.rb
+          formula-path: Formula/ke.rb
           homebrew-tap: kisom/homebrew-tap
           base-branch: master
           commit-message: |
