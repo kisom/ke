@@ -627,7 +627,7 @@ open_file(const char *filename)
 
 	editor.filename = strdup(filename);
 	assert(editor.filename != NULL);
-	
+
 	editor.dirty = 0;
 	if ((fp = fopen(filename, "r")) == NULL) {
 		if (errno == ENOENT) {
