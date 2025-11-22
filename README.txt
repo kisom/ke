@@ -6,6 +6,9 @@ used fairly often.
 
 See the man page for more info.
 
-It should be available via homebrew, even.
+It should be available via homebrew, even:
+
+    brew tap kisom/homebrew-tap
+    brew install ke
 
 Released under an ISC license.
