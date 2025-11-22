@@ -44,6 +44,39 @@
 #define	TAB_STOP	8
 
 
+#define	INITIAL_BUFSIZE		64
+
+
+int
+next_power_of_2(int n)
+{
+	n--;
+	n |= n >> 1;
+	n |= n >> 2;
+	n |= n >> 4;
+	n |= n >> 8;
+	n |= n >> 16;
+	return n+1;
+}
+
+/*
+ * cap_growth is a generalized strategy to growing buffers.
+ */
+int
+cap_growth(int cap, int sz)
+{
+	if (cap == 0) {
+		return INITIAL_BUFSIZE;
+	}
+
+	while (sz < cap) {
+		cap = next_power_of_2(cap);
+	}
+
+	return cap;
+}
+
+
 /*
  * Function and struct declarations.
  */
@@ -67,6 +100,8 @@ struct erow {
 
 	int	 size;
 	int	 rsize;
+
+	int	 cap;
 };
 
 char	 nibble_to_hex(char c);
@@ -181,7 +216,7 @@ init_editor(void)
 	editor.rows = 0;
 
 	if (get_winsz(&editor.rows, &editor.cols) == -1) {
-		die("can't get window size - is this an interactive terminal?");
+		// die("can't get window size - is this an interactive terminal?");
 	}
 	editor.rows--; /* status bar */
 	editor.rows--; /* message line */
@@ -232,14 +267,14 @@ ab_append(struct abuf *buf, const char *s, int len)
 	assert((delta >= 0 && buf->len < INT_MAX - delta));
 	sz = buf->len + delta;
 
-	if (sz >= buf->cap) {
+	if (sz > buf->cap) {
 		if (buf->cap == 0) {
-			buf->cap = 1;
+			buf->cap = 64;
 		}
 
-		while (sz > buf->cap) {
-			if (buf->cap < INT_MAX/2) {
-				buf->cap *= INT_MAX;
+		while (sz < buf->cap) {
+			if (buf->cap > INT_MAX/2) {
+				buf->cap = INT_MAX;
 				break;
 			}
 			buf->cap *= 2;
@@ -327,6 +362,8 @@ erow_update(struct erow *row)
 	int	i = 0, j;
 	int	tabs = 0;
 	int	ctrl = 0;
+	int	rszp = 0;
+	int	ncap = row->cap;
 
 	/*
 	 * TODO(kyle): I'm not thrilled with this double-render.
@@ -339,13 +376,14 @@ erow_update(struct erow *row)
 		}
 	}
 
-	if (row->rsize) {
-		free(row->render);
-		row->rsize = 0;
+	rszp = tabs * (TAB_STOP-1) + ctrl * 3;
+	if (rszp > row->cap) {
+		while (ncap < rszp) ncap = cap_growth(row->cap, rszp);
+
+		row->render = realloc(row->render, ncap);
+		assert(row->render != NULL);
+		row->cap = ncap;
 	}
-	row->render = NULL;
-	row->render = malloc(row->size + (tabs * (TAB_STOP-1)) + (ctrl * 3) + 1);
-	assert(row->render != NULL);
 
 	for (j = 0; j < row->size; j++) {
 		if (row->line[j] == '\t') {
@@ -373,8 +411,9 @@ erow_init(struct erow *row, int len)
 	row->rsize = 0;
 	row->render = NULL;
 	row->line = NULL;
+	row->cap = cap_growth(0, len);
 
-	row->line = malloc(len+1);
+	row->line = malloc(row->cap);
 	assert(row->line != NULL);
 	if (row->line == NULL) {
 		return -1;
@@ -513,6 +552,9 @@ row_append_row(struct erow *row, char *s, int len)
 void
 row_insert_ch(struct erow *row, int at, int16_t c)
 {
+	int	 ncap = 0;
+	char	*nline = NULL;
+
 	/*
 	 * row_insert_ch just concerns itself with how to update a row.
 	 */
@@ -520,6 +562,19 @@ row_insert_ch(struct erow *row, int at, int16_t c)
 		at = row->size;
 	}
 	assert(c > 0);
+
+	if (row->size == row->cap) {
+		ncap = cap_growth(row->cap, row->size+1);
+		nline = realloc(row->line, ncap);
+
+		assert(nline != NULL);
+		if (nline == NULL) {
+			return;
+		}
+
+		row->cap = ncap;
+		row->line = nline;
+	}
 
 	row->line = realloc(row->line, row->size+2);
 	assert(row->line != NULL);
@@ -1368,7 +1423,6 @@ draw_rows(struct abuf *ab)
 				ab_append(ab, "|", 1);
 			}
 		} else {
-			erow_update(&editor.row[filerow]);
 			buflen = editor.row[filerow].rsize - editor.coloffs;
 			if (buflen < 0) {
 				buflen = 0;
@@ -1377,6 +1431,7 @@ draw_rows(struct abuf *ab)
 			if (buflen > editor.cols) {
 				buflen = editor.cols;
 			}
+
 			ab_append(ab, editor.row[filerow].render+editor.coloffs,
 				  buflen);
 		}
@@ -1519,10 +1574,10 @@ editor_set_status(const char *fmt, ...)
 void
 loop(void)
 {
-	int	up = 1; /* update on the first runthrough */
+	display_refresh();
 
 	while (1) {
-		if (up) display_refresh();
+		int update = 0;
 
 		/*
 		 * ke should only refresh the display if it has received keyboard
@@ -1530,8 +1585,12 @@ loop(void)
 		 * handling pastes without massive screen flicker.
 		 *
 		 */
-		if ((up = process_keypress()) != 0) {
-			while (process_keypress()) ;
+		while (process_keypress()) {
+			update = 1;
+		}
+
+		if (update) {
+			display_refresh();
 		}
 	}
 }
