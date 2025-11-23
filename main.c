@@ -124,7 +124,9 @@ int		 get_winsz(int *rows, int *cols);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
 void		 find_next_word(void);
+void		 delete_next_word(void);
 void		 find_prev_word(void);
+void		 delete_prev_word(void);
 void		 delete_row(int at);
 void		 row_append_row(struct erow *row, char *s, int len);
 void		 row_insert_ch(struct erow *row, int at, int16_t c);
@@ -535,7 +537,6 @@ find_next_word(void)
 			move_cursor(ARROW_RIGHT);
 		}
 
-		editor_set_status("%d, %d done", editor.curx, editor.cury);
 		return;
 	}
 
@@ -545,6 +546,34 @@ find_next_word(void)
 		}
 
 		find_next_word();
+	}
+}
+
+
+void
+delete_next_word(void)
+{
+	while (cursor_at_eol()) {
+		move_cursor(ARROW_RIGHT);
+		deletech();
+	}
+
+	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
+		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
+			move_cursor(ARROW_RIGHT);
+			deletech();
+		}
+
+		return;
+	}
+
+	if (isspace(editor.row[editor.cury].line[editor.curx])) {
+		while (isspace(editor.row[editor.cury].line[editor.curx])) {
+			move_cursor(ARROW_RIGHT);
+			deletech();
+		}
+
+		delete_next_word();
 	}
 }
 
@@ -577,6 +606,36 @@ find_prev_word(void)
 	if (isspace(editor.row[editor.cury].line[editor.curx]) || cursor_at_eol()) {
 		move_cursor(ARROW_LEFT);
 		find_prev_word();
+	}
+}
+
+void
+delete_prev_word(void)
+{
+	/* Clean up any empty lines. */
+	if (editor.curx == 0) {
+		if (editor.cury == 0) {
+			return;
+		}
+
+		while (editor.curx == 0) {
+			deletech();
+		}
+	}
+
+	/* snarf up whitespace */
+	while (isspace(editor.row[editor.cury].line[editor.curx])) {
+		move_cursor(ARROW_RIGHT);
+		deletech();
+	}
+
+	while (editor.curx > 0 && !isalnum(editor.row[editor.cury].line[editor.curx])) {
+		deletech();
+	}
+
+	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
+		move_cursor(ARROW_RIGHT);
+		deletech();
 	}
 }
 
@@ -661,6 +720,9 @@ insertch(int16_t c)
 }
 
 
+/*
+ * deletech
+ */
 void
 deletech(void)
 {
@@ -1268,8 +1330,6 @@ process_normal(int16_t c)
 void
 process_escape(int16_t c)
 {
-	struct erow	*row = &editor.row[editor.cury];
-
 	editor_set_status("hi");
 
 	switch (c) {
@@ -1281,22 +1341,17 @@ process_escape(int16_t c)
 		editor.cury = 0;
 		editor.curx = 0;
 		break;
-	case 'f':
-		find_next_word();
-		break;
 	case 'b':
 		find_prev_word();
 		break;
+	case 'd':
+		delete_next_word();
+		break;
+	case 'f':
+		find_next_word();
+		break;
 	case BACKSPACE:
-		if (isalnum(row->line[editor.curx])) {
-			editor_set_status("is alnum");
-			while (editor.curx > 0 && isalnum(row->line[editor.curx])) {
-				process_normal(BACKSPACE);
-			}
-		} else {
-			editor_set_status("not alnum");
-			process_normal(BACKSPACE);
-		}
+		delete_prev_word();
 		break;
 	default:
 		editor_set_status("unknown ESC key: %04x", c);
