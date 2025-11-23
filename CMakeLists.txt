@@ -6,7 +6,16 @@ set(KE_VERSION "1.0.10")
 
 set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -D_XOPEN_SOURCE")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+
+# Optionally enable AddressSanitizer (ASan)
+option(ENABLE_ASAN "Enable AddressSanitizer for builds" OFF)
+
+if (ENABLE_ASAN)
+    message(STATUS "ASan enabled")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+    # Ensure the sanitizer is linked too (especially important on some platforms)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+endif()
 
 
 # Add executable
