@@ -122,6 +122,7 @@ void	 editor_set_status(const char *fmt, ...);
 void		 die(const char *s);
 int		 get_winsz(int *rows, int *cols);
 void		 goto_line(void);
+int		 cursor_at_eol(void);
 void		 delete_row(int at);
 void		 row_append_row(struct erow *row, char *s, int len);
 void		 row_insert_ch(struct erow *row, int at, int16_t c);
@@ -505,6 +506,30 @@ goto_line(void)
 
 	editor.cury = lineno - 1;
 	editor.rowoffs = editor.cury - (editor.rows / 2);
+}
+
+
+int
+cursor_at_eol(int curx, int cury)
+{
+	assert(curx >= 0);
+	assert(cury >= 0);
+	assert(cury < editor.nrows);
+	assert(curx < editor.row[cury].size);
+
+	return curx == editor.row[cury].size;	
+}
+
+
+void
+find_next_word()
+{
+	int	x = editor.curx;
+	int	y = editor.cury;
+
+	while (1) {
+
+	}
 }
 
 
