@@ -123,6 +123,8 @@ void		 die(const char *s);
 int		 get_winsz(int *rows, int *cols);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
+void		 find_next_word(void);
+void		 find_prev_word(void);
 void		 delete_row(int at);
 void		 row_append_row(struct erow *row, char *s, int len);
 void		 row_insert_ch(struct erow *row, int at, int16_t c);
@@ -510,25 +512,71 @@ goto_line(void)
 
 
 int
-cursor_at_eol(int curx, int cury)
+cursor_at_eol(void)
 {
-	assert(curx >= 0);
-	assert(cury >= 0);
-	assert(cury < editor.nrows);
-	assert(curx < editor.row[cury].size);
+	assert(editor.curx >= 0);
+	assert(editor.cury >= 0);
+	assert(editor.cury <= editor.nrows);
+	assert(editor.curx <= editor.row[editor.cury].size);
 
-	return curx == editor.row[cury].size;	
+	return editor.curx == editor.row[editor.cury].size;
 }
 
 
 void
-find_next_word()
+find_next_word(void)
 {
-	int	x = editor.curx;
-	int	y = editor.cury;
+	while (cursor_at_eol()) {
+		move_cursor(ARROW_RIGHT);
+	}
+	
+	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
+		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
+			move_cursor(ARROW_RIGHT);
+		}
 
-	while (1) {
+		editor_set_status("%d, %d done", editor.curx, editor.cury);
+		return;
+	}
 
+	if (isspace(editor.row[editor.cury].line[editor.curx])) {
+		while (isspace(editor.row[editor.cury].line[editor.curx])) {
+			move_cursor(ARROW_RIGHT);
+		}
+
+		find_next_word();
+	}
+}
+
+
+void
+find_prev_word(void)
+{
+	if (editor.curx == 0) {
+		if (editor.cury == 0) {
+			return;
+		}
+
+		move_cursor(ARROW_LEFT);
+	}
+
+	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
+		while (!isspace(editor.row[editor.cury].line[editor.curx]) && editor.curx > 0) {
+			move_cursor(ARROW_LEFT);
+		}
+
+		if (editor.curx > 0) {
+			if (isspace(editor.row[editor.cury].line[editor.curx])) {
+				move_cursor(ARROW_RIGHT);
+			}
+		}
+
+		return;
+	}
+
+	if (isspace(editor.row[editor.cury].line[editor.curx]) || cursor_at_eol()) {
+		move_cursor(ARROW_LEFT);
+		find_prev_word();
 	}
 }
 
@@ -1010,7 +1058,7 @@ void
 move_cursor(int16_t c)
 {
 	struct erow	*row;
-	int	 reps;
+	int		 reps;
 
 	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
 
@@ -1232,6 +1280,12 @@ process_escape(int16_t c)
 	case '<':
 		editor.cury = 0;
 		editor.curx = 0;
+		break;
+	case 'f':
+		find_next_word();
+		break;
+	case 'b':
+		find_prev_word();
 		break;
 	case BACKSPACE:
 		if (isalnum(row->line[editor.curx])) {
