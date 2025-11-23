@@ -12,3 +12,6 @@ all: $(TARGET)
 
 $(TARGET): main.c
 	$(CC) $(CFLAGS) -o $(TARGET) $(LDFLAGS) main.c
+
+clean:
+	rm -f $(TARGET)
