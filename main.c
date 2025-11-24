@@ -823,7 +823,7 @@ delete_prev_word(void)
 	while (editor.cury > 0 || editor.curx > 0) {
 		if (editor.curx == 0) {
 			deletech(KILLRING_PREPEND);
-			continue
+			continue;
 		}
 
 		if (!isspace(editor.row[editor.cury].line[editor.curx - 1])) {
