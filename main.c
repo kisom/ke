@@ -120,7 +120,6 @@ void	 editor_set_status(const char *fmt, ...);
 
 /* miscellaneous */
 void		 die(const char *s);
-int		 iswspace(const char c);
 int		 get_winsz(int *rows, int *cols);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
@@ -469,11 +468,6 @@ die(const char *s)
 }
 
 
-int
-iswspace(const char c)
-{
-	return isspace(c) || c == '\t';
-}
 
 /*
  * get_winsz uses the TIOCGWINSZ to get the window size.
@@ -540,15 +534,15 @@ find_next_word(void)
 	}
 	
 	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
-		while (!iswspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
+		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
 			move_cursor(ARROW_RIGHT);
 		}
 
 		return;
 	}
 
-	if (iswspace(editor.row[editor.cury].line[editor.curx])) {
-		while (iswspace(editor.row[editor.cury].line[editor.curx])) {
+	if (isspace(editor.row[editor.cury].line[editor.curx])) {
+		while (isspace(editor.row[editor.cury].line[editor.curx])) {
 			move_cursor(ARROW_RIGHT);
 		}
 
@@ -566,7 +560,7 @@ delete_next_word(void)
 	}
 
 	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
-		while (!iswspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
+		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
 			move_cursor(ARROW_RIGHT);
 			deletech();
 		}
@@ -574,8 +568,8 @@ delete_next_word(void)
 		return;
 	}
 
-	if (iswspace(editor.row[editor.cury].line[editor.curx])) {
-		while (iswspace(editor.row[editor.cury].line[editor.curx])) {
+	if (isspace(editor.row[editor.cury].line[editor.curx])) {
+		while (isspace(editor.row[editor.cury].line[editor.curx])) {
 			move_cursor(ARROW_RIGHT);
 			deletech();
 		}
@@ -594,7 +588,7 @@ find_prev_word(void)
 
 	move_cursor(ARROW_LEFT);
 
-	while (cursor_at_eol() || iswspace(editor.row[editor.cury].line[editor.curx])) {
+	while (cursor_at_eol() || isspace(editor.row[editor.cury].line[editor.curx])) {
 		if (editor.cury == 0 && editor.curx == 0) {
 			return;
 		}
@@ -602,7 +596,7 @@ find_prev_word(void)
 		move_cursor(ARROW_LEFT);
 	}
 
-	while (editor.curx > 0 && !iswspace(editor.row[editor.cury].line[editor.curx - 1])) {
+	while (editor.curx > 0 && !isspace(editor.row[editor.cury].line[editor.curx - 1])) {
 		move_cursor(ARROW_LEFT);
 	}
 }
@@ -620,7 +614,7 @@ delete_prev_word(void)
 		if (editor.curx == 0) {
 			deletech();
 		} else {
-			if (!iswspace(editor.row[editor.cury].line[editor.curx - 1])) {
+			if (!isspace(editor.row[editor.cury].line[editor.curx - 1])) {
 				break;
 			}
 			deletech();
@@ -628,7 +622,7 @@ delete_prev_word(void)
 	}
 
 	while (editor.curx > 0) {
-		if (iswspace(editor.row[editor.cury].line[editor.curx - 1])) {
+		if (isspace(editor.row[editor.cury].line[editor.curx - 1])) {
 			break;
 		}
 		deletech();
@@ -1239,9 +1233,15 @@ process_kcommand(int16_t c)
 		delete_row(editor.cury);
 		break;
 	case 'd':
+		if (editor.curx == 0 && cursor_at_eol()) {
+			delete_row(editor.cury);
+			return;
+		}
+
 		while ((editor.row[editor.cury].size - editor.curx) > 0) {
 			process_normal(DEL_KEY);
 		}
+
 		break;
 	case 'g':
 	case CTRL_KEY('g'):
