@@ -8,10 +8,14 @@ CFLAGS +=	-fsanitize=address -fno-omit-frame-pointer
 
 LDFLAGS :=	-fsanitize=address
 
-all: $(TARGET)
+all: $(TARGET) test.txt
 
 $(TARGET): main.c
 	$(CC) $(CFLAGS) -o $(TARGET) $(LDFLAGS) main.c
 
 clean:
 	rm -f $(TARGET)
+
+.PHONY: test.txt
+test.txt:
+	cp test.txt.bak $@
