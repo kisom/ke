@@ -51,6 +51,13 @@
 
 #define INITIAL_CAPACITY	64
 
+
+#define KILLRING_NO_OP		0	/* don't touch the killring */
+#define KILLRING_APPEND		1	/* append deleted chars */
+#define KILLRING_PREPEND	2	/* prepend deleted chars */
+#define KILLING_SET		3	/* set killring to deleted char */
+#define KILLRING_FLUSH		4	/* clear the killring */
+
 int
 next_power_of_2(int n)
 {
@@ -130,11 +137,13 @@ void		 delete_next_word(void);
 void		 find_prev_word(void);
 void		 delete_prev_word(void);
 void		 delete_row(int at);
+void		 killring_flush(void);
+void		 killring_yank(void);
 void		 row_append_row(struct erow *row, char *s, int len);
 void		 row_insert_ch(struct erow *row, int at, int16_t c);
 void		 row_delete_ch(struct erow *row, int at);
 void		 insertch(int16_t c);
-void		 deletech(void);
+void		 deletech(uint8_t op);
 void		 open_file(const char *filename);
 char		*rows_to_buffer(int *buflen);
 int		 save_file(void);
@@ -196,6 +205,8 @@ struct editor_t {
 	int		 nrows;
 	int		 rowoffs, coloffs;
 	struct erow	*row;
+ struct erow	*killring;
+ int		 killing;   /* are we in a contiguous delete sequence? */
 	char		*filename;
 	int		 dirty;
 	int		 dirtyex;
@@ -211,6 +222,8 @@ struct editor_t {
 	.rowoffs = 0,
 	.coloffs = 0,
 	.row = NULL,
+ .killring = NULL,
+ .killing = 0,
 	.filename = NULL,
 	.dirty = 0,
 	.dirtyex = 0,
@@ -238,6 +251,7 @@ init_editor(void)
 	editor.nrows = 0;
 	editor.rowoffs = editor.coloffs = 0;
 	editor.row = NULL;
+	editor.killring = NULL;
 
 	editor.msg[0] = '\0';
 	editor.msgtm = 0;
@@ -262,6 +276,9 @@ reset_editor(void)
 		free(editor.filename);
 		editor.filename = NULL;
 	}
+
+	erow_free(editor.killring);
+	editor.killring = NULL;
 
 	init_editor();
 }
@@ -528,6 +545,27 @@ erow_insert(int at, char *s, int len)
 
 
 void
+killring_flush(void)
+{
+    erow_free(editor.killring);
+    editor.killring = NULL;
+}
+
+
+void
+killring_yank()
+{
+    if (editor.killring == NULL) {
+        return;
+    }
+    /* Insert killring contents at the cursor without clearing the ring. */
+    for (int i = 0; i < editor.killring->size; i++) {
+        insertch((unsigned char)editor.killring->line[i]);
+    }
+}
+
+
+void
 erow_free(struct erow *row)
 {
 	free(row->render);
@@ -640,13 +678,13 @@ delete_next_word(void)
 {
 	while (cursor_at_eol()) {
 		move_cursor(ARROW_RIGHT);
-		deletech();
+		deletech(KILLRING_NO_OP);;
 	}
 
 	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
 		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
 			move_cursor(ARROW_RIGHT);
-			deletech();
+			deletech(KILLRING_NO_OP);;
 		}
 
 		return;
@@ -655,7 +693,7 @@ delete_next_word(void)
 	if (isspace(editor.row[editor.cury].line[editor.curx])) {
 		while (isspace(editor.row[editor.cury].line[editor.curx])) {
 			move_cursor(ARROW_RIGHT);
-			deletech();
+			deletech(KILLRING_NO_OP);;
 		}
 
 		delete_next_word();
@@ -692,16 +730,16 @@ delete_prev_word(void)
 		return;
 	}
 
-	deletech();
+	deletech(KILLRING_NO_OP);;
 
 	while (editor.cury > 0 || editor.curx > 0) {
 		if (editor.curx == 0) {
-			deletech();
+			deletech(KILLRING_NO_OP);;
 		} else {
 			if (!isspace(editor.row[editor.cury].line[editor.curx - 1])) {
 				break;
 			}
-			deletech();
+			deletech(KILLRING_NO_OP);;
 		}
 	}
 
@@ -709,7 +747,7 @@ delete_prev_word(void)
 		if (isspace(editor.row[editor.cury].line[editor.curx - 1])) {
 			break;
 		}
-		deletech();
+		deletech(KILLRING_NO_OP);;
 	}
 }
 
@@ -799,7 +837,7 @@ insertch(int16_t c)
  * deletech
  */
 void
-deletech(void)
+deletech(uint8_t op)
 {
 	struct erow	*row = NULL;
 
@@ -1367,6 +1405,11 @@ process_kcommand(int16_t c)
 		abort();
 	case 'e':
 	case CTRL_KEY('e'):
+		if (editor.dirty && editor.dirtyex) {
+			editor_set_status("File not saved - C-k e again to open a new file anyways.");
+			editor.dirtyex = 0;
+			return;
+		}
 		editor_openfile();
 		break;
 	case 'f':
@@ -1379,6 +1422,12 @@ process_kcommand(int16_t c)
 			editor_set_status("make: ok");
 		}
 		break;
+	case 'y':
+		killring_yank();
+		break;
+	default:
+		editor_set_status("unknown kcommand: %04x", c);
+		return;
 	}
 
 	editor.dirtyex = 1;
@@ -1409,7 +1458,7 @@ process_normal(int16_t c)
 			move_cursor(ARROW_RIGHT);
 		}
 
-		deletech();
+		deletech(KILLRING_NO_OP);;
 		break;
 	case CTRL_KEY('l'):
 		display_refresh();
