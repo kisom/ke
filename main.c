@@ -137,6 +137,9 @@ void		 delete_next_word(void);
 void		 find_prev_word(void);
 void		 delete_prev_word(void);
 void		 delete_row(int at);
+void		 killring_start_with_char(unsigned char ch);
+void		 killring_append_char(unsigned char ch);
+void		 killring_prepend_char(unsigned char ch);
 void		 killring_flush(void);
 void		 killring_yank(void);
 void		 row_append_row(struct erow *row, char *s, int len);
@@ -207,6 +210,7 @@ struct editor_t {
 	struct erow	*row;
  struct erow	*killring;
  int		 killing;   /* are we in a contiguous delete sequence? */
+ int		 suppress_killrow; /* internal flag: don't add to killring inside delete_row */
 	char		*filename;
 	int		 dirty;
 	int		 dirtyex;
@@ -224,6 +228,7 @@ struct editor_t {
 	.row = NULL,
  .killring = NULL,
  .killing = 0,
+ .suppress_killrow = 0,
 	.filename = NULL,
 	.dirty = 0,
 	.dirtyex = 0,
@@ -252,6 +257,8 @@ init_editor(void)
 	editor.rowoffs = editor.coloffs = 0;
 	editor.row = NULL;
 	editor.killring = NULL;
+	editor.killing = 0;
+	editor.suppress_killrow = 0;
 
 	editor.msg[0] = '\0';
 	editor.msgtm = 0;
@@ -277,8 +284,11 @@ reset_editor(void)
 		editor.filename = NULL;
 	}
 
-	erow_free(editor.killring);
-	editor.killring = NULL;
+	if (editor.killring != NULL) {
+		erow_free(editor.killring);
+		free(editor.killring);
+		editor.killring = NULL;
+	}
 
 	init_editor();
 }
@@ -322,9 +332,9 @@ nibble_to_hex(char c)
 {
 	c &= 0xf;
 	if (c < 10) {
-		return c + 0x30;
+		return (char)('0' + c);
 	}
-	return c + 0x41;
+	return (char)('A' + (c - 10));
 }
 
 
@@ -547,21 +557,99 @@ erow_insert(int at, char *s, int len)
 void
 killring_flush(void)
 {
-    erow_free(editor.killring);
-    editor.killring = NULL;
+	if (editor.killring != NULL) {
+		erow_free(editor.killring);
+		free(editor.killring);
+		editor.killring = NULL;
+	}
 }
 
 
 void
-killring_yank()
+killring_yank(void)
 {
-    if (editor.killring == NULL) {
-        return;
-    }
-    /* Insert killring contents at the cursor without clearing the ring. */
-    for (int i = 0; i < editor.killring->size; i++) {
-        insertch((unsigned char)editor.killring->line[i]);
-    }
+	if (editor.killring == NULL) {
+		return;
+	}
+	/*
+	 * Insert killring contents at the cursor without clearing the ring.
+	 * Interpret '\n' as an actual newline() rather than inserting a raw 0x0A
+	 * byte, so yanked content preserves lines correctly.
+	 */
+	for (int i = 0; i < editor.killring->size; i++) {
+		unsigned char ch = (unsigned char)editor.killring->line[i];
+		if (ch == '\n') {
+			newline();
+		}
+		else {
+			insertch(ch);
+		}
+	}
+}
+
+
+void
+killring_start_with_char(unsigned char ch)
+{
+	struct erow	*row = NULL;
+
+	if (editor.killring != NULL) {
+		erow_free(editor.killring);
+		free(editor.killring);
+		editor.killring = NULL;
+	}
+
+	editor.killring = malloc(sizeof(struct erow));
+	assert(editor.killring != NULL);
+	assert(erow_init(editor.killring, 0) == 0);
+
+	/* append one char to empty killring without affecting editor.dirty */
+	row = editor.killring;
+
+	row->line = realloc(row->line, row->size + 2);
+	assert(row->line != NULL);
+	row->line[row->size] = ch;
+	row->size++;
+	row->line[row->size] = '\0';
+	erow_update(row);
+}
+
+
+void
+killring_append_char(unsigned char ch)
+{
+	struct erow	*row = NULL;
+
+	if (editor.killring == NULL) {
+		killring_start_with_char(ch);
+		return;
+	}
+
+	row = editor.killring;
+	row->line = realloc(row->line, row->size + 2);
+	assert(row->line != NULL);
+	row->line[row->size] = ch;
+	row->size++;
+	row->line[row->size] = '\0';
+	erow_update(row);
+}
+
+
+void
+killring_prepend_char(unsigned char ch)
+{
+	if (editor.killring == NULL) {
+		killring_start_with_char(ch);
+		return;
+	}
+
+	struct erow* row = editor.killring;
+	row->line = realloc(row->line, row->size + 2);
+	assert(row->line != NULL);
+	memmove(&row->line[1], &row->line[0], row->size + 1);
+	row->line[0] = ch;
+	row->size++;
+	erow_update(row);
 }
 
 
@@ -676,28 +764,28 @@ find_next_word(void)
 void
 delete_next_word(void)
 {
-	while (cursor_at_eol()) {
-		move_cursor(ARROW_RIGHT);
-		deletech(KILLRING_NO_OP);;
-	}
+    while (cursor_at_eol()) {
+        move_cursor(ARROW_RIGHT);
+        deletech(KILLRING_APPEND);
+    }
 
-	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
-		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
-			move_cursor(ARROW_RIGHT);
-			deletech(KILLRING_NO_OP);;
-		}
+ if (isalnum(editor.row[editor.cury].line[editor.curx])) {
+        while (!isspace(editor.row[editor.cury].line[editor.curx]) && !cursor_at_eol()) {
+            move_cursor(ARROW_RIGHT);
+            deletech(KILLRING_APPEND);
+        }
 
-		return;
-	}
+        return;
+    }
 
-	if (isspace(editor.row[editor.cury].line[editor.curx])) {
-		while (isspace(editor.row[editor.cury].line[editor.curx])) {
-			move_cursor(ARROW_RIGHT);
-			deletech(KILLRING_NO_OP);;
-		}
+    if (isspace(editor.row[editor.cury].line[editor.curx])) {
+        while (isspace(editor.row[editor.cury].line[editor.curx])) {
+            move_cursor(ARROW_RIGHT);
+            deletech(KILLRING_APPEND);
+        }
 
-		delete_next_word();
-	}
+        delete_next_word();
+    }
 }
 
 
@@ -730,24 +818,26 @@ delete_prev_word(void)
 		return;
 	}
 
-	deletech(KILLRING_NO_OP);;
+	deletech(KILLRING_PREPEND);
 
 	while (editor.cury > 0 || editor.curx > 0) {
 		if (editor.curx == 0) {
-			deletech(KILLRING_NO_OP);;
-		} else {
-			if (!isspace(editor.row[editor.cury].line[editor.curx - 1])) {
-				break;
-			}
-			deletech(KILLRING_NO_OP);;
+			deletech(KILLRING_PREPEND);
+			continue
 		}
+
+		if (!isspace(editor.row[editor.cury].line[editor.curx - 1])) {
+			break;
+		}
+
+		deletech(KILLRING_PREPEND);
 	}
 
 	while (editor.curx > 0) {
 		if (isspace(editor.row[editor.cury].line[editor.curx - 1])) {
 			break;
 		}
-		deletech(KILLRING_NO_OP);;
+		deletech(KILLRING_PREPEND);
 	}
 }
 
@@ -758,9 +848,43 @@ delete_row(int at)
 		return;
 	}
 
+	/*
+	 * Update killring with the deleted row's contents followed by a newline
+	 * unless this deletion is an internal merge triggered by deletech at
+	 * start-of-line. In that case, deletech will account for the single
+	 * newline itself and we must NOT also push the entire row here.
+	 */
+	if (!editor.suppress_killrow) {
+		struct erow* r = &editor.row[at];
+		/* Start or continue the kill sequence based on editor.killing */
+		if (r->size > 0) {
+			/* push raw bytes of the line */
+			if (!editor.killing) {
+				killring_start_with_char((unsigned char)r->line[0]);
+				for (int i = 1; i < r->size; i++) {
+					killring_append_char((unsigned char)r->line[i]);
+				}
+			} else {
+				for (int i = 0; i < r->size; i++) {
+					killring_append_char((unsigned char)r->line[i]);
+				}
+			}
+			killring_append_char('\n');
+			editor.killing = 1;
+		} else {
+			if (!editor.killing) {
+				killring_start_with_char('\n');
+			}
+			else {
+				killring_append_char('\n');
+			}
+			editor.killing = 1;
+		}
+	}
+
 	erow_free(&editor.row[at]);
-	memmove(&editor.row[at], &editor.row[at+1],
-	    sizeof(struct erow) * (editor.nrows - at - 1));
+	memmove(&editor.row[at], &editor.row[at + 1],
+	        sizeof(struct erow) * (editor.nrows - at - 1));
 	editor.nrows--;
 	editor.dirty++;
 }
@@ -806,6 +930,7 @@ row_delete_ch(struct erow *row, int at)
 	if (at < 0 || at >= row->size) {
 		return;
 	}
+
 	memmove(&row->line[at], &row->line[at+1], row->size-at);
 	row->size--;
 	erow_update(row);
@@ -825,9 +950,11 @@ insertch(int16_t c)
 		erow_insert(editor.nrows, "", 0);
 	}
 
+	/* Any insertion breaks a delete sequence for killring chaining. */
+	editor.killing = 0;
 	/* Ensure we pass a non-negative byte value to avoid assert(c > 0). */
 	row_insert_ch(&editor.row[editor.cury], editor.curx,
-		(int16_t)(c & 0xff));
+	              (int16_t)(c & 0xff));
 	editor.curx++;
 	editor.dirty++;
 }
@@ -839,7 +966,8 @@ insertch(int16_t c)
 void
 deletech(uint8_t op)
 {
-	struct erow	*row = NULL;
+	struct erow* row = NULL;
+	unsigned char dch = 0;
 
 	if (editor.cury >= editor.nrows) {
 		return;
@@ -850,15 +978,59 @@ deletech(uint8_t op)
 	}
 
 	row = &editor.row[editor.cury];
+
+	/* determine which character is being deleted for killring purposes */
+	if (editor.curx > 0) {
+		dch = (unsigned char)row->line[editor.curx - 1];
+	}
+	else {
+		/* deleting at start of line merges with previous line: treat as newline */
+		dch = '\n';
+	}
+
+	/* update buffer */
 	if (editor.curx > 0) {
 		row_delete_ch(row, editor.curx - 1);
 		editor.curx--;
-	} else {
+	}
+	else {
 		editor.curx = editor.row[editor.cury - 1].size;
 		row_append_row(&editor.row[editor.cury - 1], row->line,
-		    row->size);
+		               row->size);
+		int prev = editor.suppress_killrow;
+		editor.suppress_killrow = 1; /* prevent killring update on internal row delete */
 		delete_row(editor.cury);
+		editor.suppress_killrow = prev;
 		editor.cury--;
+	}
+
+	/* update killring if requested */
+	if (op == KILLRING_FLUSH) {
+		killring_flush();
+		editor.killing = 0;
+		return;
+	}
+
+	if (op == KILLRING_NO_OP) {
+		/* Do not modify killring or chaining state. */
+		return;
+	}
+
+	if (!editor.killing) {
+		killring_start_with_char(dch);
+		editor.killing = 1;
+		return;
+	}
+
+	if (op == KILLING_SET) {
+		killring_start_with_char(dch);
+		editor.killing = 1;
+	}
+	else if (op == KILLRING_APPEND) {
+		killring_append_char(dch);
+	}
+	else if (op == KILLRING_PREPEND) {
+		killring_prepend_char(dch);
 	}
 }
 
@@ -1338,22 +1510,24 @@ move_cursor(int16_t c)
 void
 newline(void)
 {
-	struct erow	*row = NULL;
+    struct erow	*row = NULL;
 
-	if (editor.curx == 0) {
-		erow_insert(editor.cury, "", 0);
-	} else {
-		row = &editor.row[editor.cury];
-		erow_insert(editor.cury + 1, &row->line[editor.curx],
-		    row->size - editor.curx);
-		row = &editor.row[editor.cury];
-		row->size = editor.curx;
-		row->line[row->size] = '\0';
-		erow_update(row);
-	}
+    if (editor.curx == 0) {
+        erow_insert(editor.cury, "", 0);
+    } else {
+        row = &editor.row[editor.cury];
+        erow_insert(editor.cury + 1, &row->line[editor.curx],
+            row->size - editor.curx);
+        row = &editor.row[editor.cury];
+        row->size = editor.curx;
+        row->line[row->size] = '\0';
+        erow_update(row);
+    }
 
-	editor.cury++;
-	editor.curx = 0;
+    editor.cury++;
+    editor.curx = 0;
+    /* Any insertion breaks a delete sequence for killring chaining. */
+    editor.killing = 0;
 }
 
 
@@ -1439,6 +1613,8 @@ void
 process_normal(int16_t c)
 {
 	if (is_arrow_key(c)) {
+		/* moving the cursor breaks a delete sequence */
+		editor.killing = 0;
 		move_cursor(c);
 		return;
 	}
@@ -1456,9 +1632,11 @@ process_normal(int16_t c)
 	case DEL_KEY:
 		if (c == DEL_KEY || c == CTRL_KEY('d')) {
 			move_cursor(ARROW_RIGHT);
+			deletech(KILLRING_APPEND);
 		}
-
-		deletech(KILLRING_NO_OP);;
+		else {
+			deletech(KILLRING_PREPEND);
+		}
 		break;
 	case CTRL_KEY('l'):
 		display_refresh();
