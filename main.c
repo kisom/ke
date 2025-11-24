@@ -19,6 +19,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <locale.h>
+#include <wchar.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -312,16 +314,55 @@ nibble_to_hex(char c)
 int
 erow_render_to_cursor(struct erow *row, int cx)
 {
-	int	rx = 0;
-	int	j;
+	int rx		= 0;
+	size_t j	= 0;
 
-	for (j = 0; j < cx; j++) {
-		if (row->line[j] == '\t') {
-			rx += (TAB_STOP-1) - (rx%TAB_STOP);
-		} else if (row->line[j] < 0x20) {
-			rx += 2;
+	wchar_t		wc;
+	mbstate_t	st;
+
+	memset(&st, 0, sizeof(st));
+
+	while (j < (size_t)cx && j < (size_t)row->size) {
+		unsigned char b = (unsigned char)row->line[j];
+		if (b == '\t') {
+			rx += (TAB_STOP - 1) - (rx % TAB_STOP);
+			rx++;
+			j++;
+			continue;
 		}
-		rx++;
+		if (b < 0x20) {
+			/* render as \xx -> width 3 */
+			rx += 3;
+			j++;
+			continue;
+		}
+
+		size_t rem	= (size_t)row->size - j;
+		size_t n	= mbrtowc(&wc, &row->line[j], rem, &st);
+
+		if (n == (size_t)-2) {
+			/* incomplete sequence at end; treat one byte */
+			rx += 1;
+			j += 1;
+			memset(&st, 0, sizeof(st));
+		}
+		else if (n == (size_t)-1) {
+			/* invalid byte; consume one and reset state */
+			rx += 1;
+			j += 1;
+			memset(&st, 0, sizeof(st));
+		}
+		else if (n == 0) {
+			/* null character */
+			rx += 0;
+			j += 1;
+		}
+		else {
+			int w = wcwidth(wc);
+			if (w < 0) w = 1; /* non-printable -> treat as width 1 */
+			rx += w;
+			j += n;
+		}
 	}
 
 	return rx;
@@ -331,23 +372,60 @@ erow_render_to_cursor(struct erow *row, int cx)
 int
 erow_cursor_to_render(struct erow *row, int rx)
 {
-	int	cur_rx = 0;
-	int	curx = 0;
+	int cur_rx	= 0;
+	size_t j	= 0;
 
-	for (curx = 0; curx < row->size; curx++) {
-		if (row->line[curx] == '\t') {
-			cur_rx += (TAB_STOP - 1) - (cur_rx % TAB_STOP);
-		} else if (row->line[curx] < 0x20) {
-			cur_rx += 2;
+	wchar_t		wc;
+	mbstate_t	st;
+
+	memset(&st, 0, sizeof(st));
+
+	while (j < (size_t)row->size) {
+		int w = 0;
+		size_t adv = 1;
+
+		unsigned char b = (unsigned char)row->line[j];
+		if (b == '\t') {
+			int add = (TAB_STOP - 1) - (cur_rx % TAB_STOP);
+			w = add + 1;
+			adv = 1;
+			/* tabs are single byte */
 		}
-		cur_rx++;
+		else if (b < 0x20) {
+			w = 3; /* "\\xx" */
+			adv = 1;
+		}
+		else {
+			size_t rem = (size_t)row->size - j;
+			size_t n = mbrtowc(&wc, &row->line[j], rem, &st);
 
-		if (cur_rx > rx) {
+			if (n == (size_t)-2 || n == (size_t)-1) {
+				/* invalid/incomplete */
+				w = 1;
+				adv = 1;
+				memset(&st, 0, sizeof(st));
+			}
+			else if (n == 0) {
+				w = 0;
+				adv = 1;
+			}
+			else {
+				int ww = wcwidth(wc);
+				if (ww < 0) ww = 1;
+				w = ww;
+				adv = n;
+			}
+		}
+
+		if (cur_rx + w > rx) {
 			break;
 		}
+
+		cur_rx += w;
+		j += adv;
 	}
 
-	return curx;
+	return (int)j;
 }
 
 
@@ -364,7 +442,9 @@ erow_update(struct erow *row)
 	for (j = 0; j < row->size; j++) {
 		if (row->line[j] == '\t') {
 			tabs++;
-		} else if (!isprint(row->line[j])) {
+		}
+		else if ((unsigned char)row->line[j] < 0x20) {
+			/* treat only ASCII control characters as non-printable */
 			ctrl++;
 		}
 	}
@@ -374,19 +454,23 @@ erow_update(struct erow *row)
 		row->rsize = 0;
 	}
 	row->render = NULL;
-	row->render = malloc(row->size + (tabs * (TAB_STOP-1)) + (ctrl * 3) + 1);
+	row->render = malloc(row->size + (tabs * (TAB_STOP - 1)) + (ctrl * 3) + 1);
 	assert(row->render != NULL);
 
 	for (j = 0; j < row->size; j++) {
 		if (row->line[j] == '\t') {
 			do {
 				row->render[i++] = ' ';
-			} while ((i % TAB_STOP) != 0);
-		} else if (!isprint(row->line[j])) {
+			}
+			while ((i % TAB_STOP) != 0);
+		}
+		else if ((unsigned char)row->line[j] < 0x20) {
 			row->render[i++] = '\\';
 			row->render[i++] = nibble_to_hex(row->line[j] >> 4);
 			row->render[i++] = nibble_to_hex(row->line[j] & 0x0f);
-		} else {
+		}
+		else {
+			/* leave UTF-8 multibyte bytes untouched so terminal can render */
 			row->render[i++] = row->line[j];
 		}
 	}
@@ -703,7 +787,9 @@ insertch(int16_t c)
 		erow_insert(editor.nrows, "", 0);
 	}
 
-	row_insert_ch(&editor.row[editor.cury], editor.curx, (char)(c & 0xff));
+	/* Ensure we pass a non-negative byte value to avoid assert(c > 0). */
+	row_insert_ch(&editor.row[editor.cury], editor.curx,
+		(int16_t)(c & 0xff));
 	editor.curx++;
 	editor.dirty++;
 }
@@ -903,12 +989,16 @@ is_arrow_key(int16_t c)
 int16_t
 get_keypress(void)
 {
-	char	seq[3];
-	char	c = -1;
+	char		seq[3];
+	/* read raw byte so UTF-8 bytes (>=0x80) are not sign-extended */
+	unsigned char	uc = 0;
+	int16_t		c;
 
-	if (read(STDIN_FILENO, &c, 1) == -1) {
+	if (read(STDIN_FILENO, &uc, 1) == -1) {
 		die("get_keypress:read");
 	}
+
+	c = (int16_t)uc;
 
 	if (c == 0x1b) {
 		if (read(STDIN_FILENO, &seq[0], 1) != 1) return c;
@@ -917,7 +1007,7 @@ get_keypress(void)
 		if (seq[0] == '[') {
 			if (seq[1] < 'A') {
 				if (read(STDIN_FILENO, &seq[2], 1) != 1)
-					 return c;
+					return c;
 				if (seq[2] == '~') {
 					switch (seq[1]) {
 					case '1': return HOME_KEY;
@@ -929,7 +1019,8 @@ get_keypress(void)
 					case '8': return END_KEY;
 					}
 				}
-			} else {
+			}
+			else {
 				switch (seq[1]) {
 				case 'A': return ARROW_UP;
 				case 'B': return ARROW_DOWN;
@@ -942,7 +1033,8 @@ get_keypress(void)
 					/* nada */ ;
 				}
 			}
-		} else if (seq[0] == 'O') {
+		}
+		else if (seq[0] == 'O') {
 			switch (seq[1]) {
 			case 'F': return END_KEY;
 			case 'H': return HOME_KEY;
@@ -989,14 +1081,14 @@ editor_prompt(char *prompt, void (*cb)(char *, int16_t))
 				}
 				return buf;
 			}
-		} else if (!iscntrl(c) && c < 128) {
+		} else if ((c == TAB_KEY) || (c >= 0x20 && c != 0x7f)) {
 			if (buflen == bufsz - 1) {
 				bufsz *= 2;
 				buf = realloc(buf, bufsz);
 				assert(buf != NULL);
 			}
 
-			buf[buflen++] = c;
+			buf[buflen++] = (char)(c & 0xff);
 			buf[buflen] = '\0';
 		}
 
@@ -1108,8 +1200,8 @@ editor_openfile(void)
 void
 move_cursor(int16_t c)
 {
-	struct erow	*row;
-	int		 reps;
+	struct erow* row;
+	int reps;
 
 	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
 
@@ -1130,7 +1222,13 @@ move_cursor(int16_t c)
 	case CTRL_KEY('f'):
 		if (row && editor.curx < row->size) {
 			editor.curx++;
-		} else if (row && editor.curx == row->size) {
+			/* skip over UTF-8 continuation bytes */
+			while (row && editor.curx < row->size &&
+				((unsigned char)row->line[editor.curx] & 0xC0) == 0x80) {
+				editor.curx++;
+			}
+		}
+		else if (row && editor.curx == row->size) {
 			editor.cury++;
 			editor.curx = 0;
 		}
@@ -1139,17 +1237,30 @@ move_cursor(int16_t c)
 	case CTRL_KEY('b'):
 		if (editor.curx > 0) {
 			editor.curx--;
-		} else if (editor.cury > 0) {
+			/* move to the start byte if we landed on a continuation */
+			while (editor.curx > 0 &&
+				((unsigned char)row->line[editor.curx] & 0xC0) == 0x80) {
+				editor.curx--;
+			}
+		}
+		else if (editor.cury > 0) {
 			editor.cury--;
 			editor.curx = editor.row[editor.cury].size;
+			/* ensure at a codepoint boundary at end of previous line */
+			row = &editor.row[editor.cury];
+			while (editor.curx > 0 &&
+				((unsigned char)row->line[editor.curx] & 0xC0) == 0x80) {
+				editor.curx--;
+			}
 		}
 		break;
 	case PG_UP:
-	case PG_DN: {
+	case PG_DN:
 		if (c == PG_UP) {
 			editor.cury = editor.rowoffs;
-		} else if (c == PG_DN) {
-			editor.cury = editor.rowoffs + editor.rows-1;
+		}
+		else if (c == PG_DN) {
+			editor.cury = editor.rowoffs + editor.rows - 1;
 			if (editor.cury > editor.nrows) {
 				editor.cury = editor.nrows;
 			}
@@ -1161,7 +1272,6 @@ move_cursor(int16_t c)
 		}
 
 		break;
-	}
 
 	case HOME_KEY:
 	case CTRL_KEY('a'):
@@ -1179,8 +1289,7 @@ move_cursor(int16_t c)
 	}
 
 
-	row = (editor.cury >= editor.nrows) ?
-	      NULL : &editor.row[editor.cury];
+	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
 	reps = row ? row->size : 0;
 	if (editor.curx > reps) {
 		editor.curx = reps;
@@ -1312,7 +1421,8 @@ process_normal(int16_t c)
 		editor.mode = MODE_ESCAPE;
 		break;
 	default:
-		if (isprint(c) || c == TAB_KEY) {
+		/* Insert any printable byte: ASCII 0x20–0x7E and all bytes >=0x80. */
+		if ((c == TAB_KEY) || (c >= 0x20 && c != 0x7f)) {
 			insertch(c);
 		}
 		break;
@@ -1662,6 +1772,9 @@ loop(void)
 int
 main(int argc, char *argv[])
 {
+	// Set locale for proper UTF-8 handling
+	setlocale(LC_ALL, "");
+
 	setup_terminal();
 	init_editor();
 
