@@ -785,7 +785,8 @@ kill_region(void)
 	}
 
 	editor_set_status("Region killed.");
-	editor.mark_set = 0;
+	/* clearing the mark needs to be done outside this function;	*
+         * when deleteing the region, the mark needs to be set too.	*/
 }
 
 
@@ -1823,6 +1824,7 @@ process_normal(int16_t c)
 		case CTRL_KEY('w'):
 			kill_region();
 			delete_region();
+			toggle_markset();
 			break;
 		case CTRL_KEY('y'):
 			killring_yank();
@@ -1874,6 +1876,7 @@ process_escape(int16_t c)
 				break;
 			}
 			kill_region();
+			toggle_markset();
 			break;
 		case BACKSPACE:
 			delete_prev_word();
