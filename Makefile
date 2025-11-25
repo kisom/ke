@@ -18,8 +18,8 @@ CXXFLAGS +=	-fsanitize=address -fno-omit-frame-pointer
 
 LDFLAGS :=	-fsanitize=address
 
-SOURCES :=	main.cc abuf.cc erow.cc
-OBJECTS :=	main.o abuf.o erow.o
+SOURCES :=	main.cc abuf.cc erow.cc terminal.cc input_handler.cc display.cc file_io.cc killring.cc
+OBJECTS :=	main.o abuf.o erow.o terminal.o input_handler.o display.o file_io.o killring.o
 
 all: $(TARGET) test.txt
 
@@ -34,6 +34,21 @@ abuf.o: abuf.cc abuf.h
 
 erow.o: erow.cc erow.h
 	$(CXX) $(CXXFLAGS) -c erow.cc
+
+terminal.o: terminal.cc terminal.h
+	$(CXX) $(CXXFLAGS) -c terminal.cc
+
+input_handler.o: input_handler.cc input_handler.h ke_constants.h
+	$(CXX) $(CXXFLAGS) -c input_handler.cc
+
+display.o: display.cc display.h ke_constants.h
+	$(CXX) $(CXXFLAGS) -c display.cc
+
+file_io.o: file_io.cc file_io.h
+	$(CXX) $(CXXFLAGS) -c file_io.cc
+
+killring.o: killring.cc killring.h
+	$(CXX) $(CXXFLAGS) -c killring.cc
 
 .PHONY: install
 #install: $(TARGET) 

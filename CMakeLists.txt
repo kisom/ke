@@ -15,6 +15,11 @@ set(KE_SOURCES
     main.cc
     abuf.cc
     erow.cc
+    terminal.cc
+    input_handler.cc
+    display.cc
+    file_io.cc
+    killring.cc
 )
 
 # Header files
@@ -22,6 +27,11 @@ set(KE_HEADERS
     ke_constants.h
     abuf.h
     erow.h
+    terminal.h
+    input_handler.h
+    display.h
+    file_io.h
+    killring.h
 )
 
 # Build options
