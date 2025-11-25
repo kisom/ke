@@ -761,10 +761,9 @@ kill_region(void)
 	/* kill the current killring */
 	killring_flush();
 
-
 	if (!cursor_after_mark()) {
 		swap_int(&curx, &markx);
-		swap_int(&curx, &marky);
+		swap_int(&cury, &marky);
 	}
 
 	editor.curx = markx;
@@ -796,11 +795,23 @@ delete_region(void)
 {
 	int	count	= count_chars_from_cursor_to_mark();
 	int	killed	= 0;
+	int	curx	= editor.curx;
+	int	cury	= editor.cury;
+	int	markx	= editor.mark_curx;
+	int	marky	= editor.mark_cury;
+
 
 	if (!editor.mark_set) {
 		return;
 	}
 
+	if (!cursor_after_mark()) {
+		swap_int(&curx, &markx);
+		swap_int(&cury, &marky);
+	}
+
+	editor.curx = markx;
+	editor.cury = marky;
 
 	while (killed < count) {
 		move_cursor(ARROW_RIGHT);
