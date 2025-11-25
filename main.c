@@ -2,11 +2,7 @@
  * kyle's editor
  *
  * first version is a run-through of the kilo editor walkthrough as a
- * set of guiderails. I've made a lot of changes and did some things
- * differently. keep an eye for for kte, kyle's text editor - the
- * rewrite that will be coming out... when it comes out.
- *
- * https://viewsourcecode.org/snaptoken/kilo/
+ * set of guiderails. I've made a lot of changes.
  */
 #include <sys/ioctl.h>
 
@@ -156,6 +152,7 @@ void		 killring_append_char(unsigned char ch);
 void		 killring_prepend_char(unsigned char ch);
 void		 toggle_markset(void);
 int		 cursor_after_mark(void);
+void		 indent_region(void);
 
 /* miscellaneous */
 void		 die(const char *s);
@@ -788,6 +785,50 @@ kill_region(void)
 	editor_set_status("Region killed.");
 	/* clearing the mark needs to be done outside this function;	*
          * when deleteing the region, the mark needs to be set too.	*/
+}
+
+
+void
+indent_region(void)
+{
+	int start_row, end_row;
+	int i;
+
+	if (!editor.mark_set) {
+		return;
+	}
+
+	if (editor.mark_cury < editor.cury) {
+		start_row = editor.mark_cury;
+		end_row = editor.cury;
+	} else if (editor.mark_cury > editor.cury) {
+		start_row = editor.cury;
+		end_row = editor.mark_cury;
+	} else {
+		start_row = end_row = editor.cury;
+	}
+
+	/* Ensure bounds are valid */
+	if (start_row < 0) {
+		start_row = 0;
+	}
+
+	if (end_row >= editor.nrows) {
+		end_row = editor.nrows - 1;
+	}
+
+	if (start_row >= editor.nrows || end_row < 0) {
+		return;
+	}
+
+	/* Prepend a tab character to every row in the region */
+	for (i = start_row; i <= end_row; i++) {
+		row_insert_ch(&editor.row[i], 0, '\t');
+	}
+
+	/* Move cursor to beginning of the line it was on */
+	editor.curx = 0;
+	editor.dirty++;
 }
 
 
@@ -1741,7 +1782,10 @@ newline(void)
 {
 	struct erow *row = NULL;
 
-	if (editor.curx == 0) {
+	if (editor.cury >= editor.nrows) {
+		/* At or past end of file, insert empty line */
+		erow_insert(editor.cury, "", 0);
+	} else if (editor.curx == 0) {
 		erow_insert(editor.cury, "", 0);
 	} else {
 		row = &editor.row[editor.cury];
@@ -1968,12 +2012,17 @@ process_normal(int16_t c)
 		case ESC_KEY:
 			editor.mode = MODE_ESCAPE;
 			break;
-		default:
-			/* Insert any printable byte: ASCII 0x20–0x7E and all bytes >=0x80. */
-			if ((c == TAB_KEY) || (c >= 0x20 && c != 0x7f)) {
-				insertch(c);
-			}
-			break;
+ 	default:
+ 		if (c == TAB_KEY) {
+ 			if (editor.mark_set) {
+ 				indent_region();
+ 			} else {
+ 				insertch(c);
+ 			}
+ 		} else if (c >= 0x20 && c != 0x7f) {
+ 			insertch(c);
+ 		}
+ 		break;
 	}
 
 	editor.dirtyex = 1;

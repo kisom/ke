@@ -16,3 +16,6 @@ To get verbose ASAN messages:
     export LSAN_OPTIONS=verbosity=1:log_threads=1
 
 Released under an ISC license.
+
+Started by following along with kilo:
+    https://viewsourcecode.org/snaptoken/kilo/
