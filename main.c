@@ -11,8 +11,10 @@
 #include <sys/ioctl.h>
 
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -727,6 +729,7 @@ kill_region(void)
 			move_cursor(ARROW_RIGHT);
 		}
 		killring_append_char('\n');
+		move_cursor(ARROW_RIGHT);
 	}
 
 	while (editor.curx != curx) {
@@ -1353,10 +1356,10 @@ get_keypress(void)
 char *
 editor_prompt(char *prompt, void (*cb)(char *, int16_t))
 {
-	size_t bufsz = 128;
-	char *buf = malloc(bufsz);
-	size_t buflen = 0;
-	int16_t c;
+	size_t bufsz 	= 128;
+	char *buf	= malloc(bufsz);
+	size_t buflen	= 0;
+	int16_t		c;
 
 	buf[0] = '\0';
 
@@ -1398,6 +1401,8 @@ editor_prompt(char *prompt, void (*cb)(char *, int16_t))
 			cb(buf, c);
 		}
 	}
+
+	free(buf);
 }
 
 
@@ -1700,6 +1705,7 @@ process_kcommand(int16_t c)
 			break;
 		case 'u':
 			editor_set_status("undo: todo");
+			break;
 		case 'y':
 			killring_yank();
 			break;
@@ -1797,6 +1803,7 @@ process_escape(int16_t c)
 				break;
 			}
 			kill_region();
+			break;
 		case BACKSPACE:
 			delete_prev_word();
 			break;
