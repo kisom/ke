@@ -19,21 +19,26 @@ is
 K-command mode is entered using C-k. This is taken from Wordstar and just
 so happens to be blessed with starting with a most excellent letter of
 grandeur. Many commands work with and without control; for example,
-saving a file can be done with either C-k s or C-k C-s.
-.Pp
+saving a file can be done with either C-k s or C-k C-s. Other commands work
+with ESC or CTRL.
+.Sh K-COMMANDS
 .Bl -tag -width xxxxxxxxxxxx -offset indent
 .It C-k BACKSPACE
 Delete from the cursor to the beginning of the line.
+.It C-k SPACE
+Toggle the mark.
 .It C-k d
 Delete from the cursor to the end of the line.
 .It C-k C-d
-Delete the entire link.
+Delete the entire line.
 .It C-k e
 Edit a new file. Also C-k C-e.
 .It C-k f
 Incremental find.
 .It C-k g
 Go to a specific line. Also C-k C-g.
+.It C-k l
+List the number of lines of code in a saved file.
 .It C-k m
 Run make(1).
 .It C-k q
@@ -46,6 +51,28 @@ save the file and exit. Also C-k C-x.
 Yank the killring.
 .It C-k \[char92]
 Dump core.
+.El
+.Sh OTHER KEYBINDINGS
+.Bl -tag -width xxxxxxxxxxxx -offset indent
+.It C-l
+Refresh the display.
+.It C-s
+Incremental find.
+.It C-w
+Kill the region if the mark is set.
+.It C-y
+Yank the killring.
+.It ESC BACKSPACE
+Delete the previous word.
+.It ESC b
+Move to the previous word.
+.It ESC d
+Delete the next word.
+.It ESC f
+Move to the next word.
+.It ESC w
+Save the region (if the mark is set) to the killring.
+.It
 .El
 .Sh FIND
 The find operation is an incremental search. The up or left arrow keys will
