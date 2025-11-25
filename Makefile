@@ -20,6 +20,7 @@ install:
 
 clean:
 	rm -f $(TARGET)
+	rm -f asan.log*
 
 .PHONY: test.txt
 test.txt:
