@@ -24,6 +24,7 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 
 #ifndef KE_VERSION
@@ -1714,30 +1715,52 @@ newline(void)
 char *
 get_cloc_code_lines(const char* filename)
 {
-	// Build the shell command dynamically
-	char command[512];
+	char		 command[512];
+	char		 buffer[256];
+	char		*result = NULL;
+	FILE		*pipe = NULL;
+	size_t		 len = 0;
+
+	if (editor.filename == NULL) {
+		snprintf(command, sizeof(command),
+			"buffer has no associated file.");
+		result = malloc((strnlen(command, sizeof(command))) + 1);
+		assert(result != NULL);
+		strcpy(result, command);
+		return result;
+	}
+
+	if (editor.dirty) {
+		snprintf(command, sizeof(command),
+			"buffer must be saved first.");
+		result = malloc((strnlen(command, sizeof(command))) + 1);
+		assert(result != NULL);
+		strcpy(result, command);
+		return result;
+	}
+
 	snprintf(command,
 	         sizeof(command),
 	         "cloc --quiet %s | tail -2 | head -1 | awk '{print $5}'",
 	         filename);
 
-	// Open a pipe to run the command
-	FILE *pipe = popen(command, "r");
+	pipe = popen(command, "r");
 	if (!pipe) {
-		return NULL; // Error opening pipe
+		snprintf(command, sizeof(command), "Error getting LOC: %s", strerror(errno));
+		result = (char *)malloc(sizeof(buffer) + 1);
+		return NULL;
 	}
 
-	// Read the output (single line/number)
-	char buffer[256];
 	if (fgets(buffer, sizeof(buffer), pipe) != NULL) {
 		// Remove trailing newline
-		size_t len = strlen(buffer);
+		len = strlen(buffer);
 		if (len > 0 && buffer[len - 1] == '\n') {
 			buffer[len - 1] = '\0';
 		}
 
 		// Allocate and copy the string
-		char *result = malloc(strlen(buffer) + 1);
+		result = malloc(strlen(buffer) + 1);
+		assert(result != NULL);
 		if (result) {
 			strcpy(result, buffer);
 			pclose(pipe);
@@ -1745,7 +1768,6 @@ get_cloc_code_lines(const char* filename)
 		}
 	}
 
-	// On error or empty output, return "0"
 	pclose(pipe);
 	char *zero = malloc(2);
 	if (zero) {
