@@ -7,7 +7,7 @@
 }:
 stdenv.mkDerivation {
   pname = "ke";
-  version = "1.3.5";
+  version = "1.3.6";
 
   src = lib.cleanSource ./.;
 
