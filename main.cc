@@ -9,55 +9,24 @@
  * https://viewsourcecode.org/snaptoken/kilo/
  */
 #include <sys/ioctl.h>
-
-#include <assert.h>
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <stdarg.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <locale.h>
-#include <wchar.h>
-#include <termios.h>
-#include <time.h>
-#include <unistd.h>
 #include <sys/stat.h>
+#include <termios.h>
+#include <unistd.h>
+#include <fcntl.h>
 
+#include <cassert>
+#include <cctype>
+#include <cerrno>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <clocale>
+#include <cwchar>
+#include <ctime>
 
-#ifndef KE_VERSION
-#define KE_VERSION		"ke dev build"
-#endif
-
-#define ESCSEQ			"\x1b["
-#define	CTRL_KEY(key)		((key)&0x1f)
-#define TAB_STOP		8
-#define MSG_TIMEO		3
-
-/*
- * define the keyboard input modes
- * normal: no special mode
- * kcommand: ^k commands
- * escape: what happens when you hit escape?
- */
-#define	MODE_NORMAL		0
-#define	MODE_KCOMMAND		1
-#define	MODE_ESCAPE		2
-
-
-#define	TAB_STOP		8
-
-
-#define INITIAL_CAPACITY	64
-
-
-#define KILLRING_NO_OP		0	/* don't touch the killring */
-#define KILLRING_APPEND		1	/* append deleted chars */
-#define KILLRING_PREPEND	2	/* prepend deleted chars */
-#define KILLING_SET		3	/* set killring to deleted char */
-#define KILLRING_FLUSH		4	/* clear the killring */
+#include "ke_constants.h"
 
 
 
@@ -144,7 +113,7 @@ int		 erow_render_to_cursor(struct erow *row, int cx);
 int		 erow_cursor_to_render(struct erow *row, int rx);
 int		 erow_init(struct erow *row, int len);
 void		 erow_update(struct erow *row);
-void		 erow_insert(int at, char *s, int len);
+void		 erow_insert(int at, const char *s, int len);
 void		 erow_free(struct erow *row);
 
 /* kill ring, marking, etc */
@@ -175,7 +144,7 @@ int16_t		 get_keypress(void);
 void		 display_refresh(void);
 void		 editor_find_callback(char *query, int16_t c);
 void		 editor_find(void);
-char		*editor_prompt(char *, void (*cb)(char *, int16_t));
+char		*editor_prompt(const char *, void (*cb)(char *, int16_t));
 void		 editor_openfile(void);
 void		 move_cursor(int16_t c);
 void		 newline(void);
@@ -321,7 +290,7 @@ ab_append(struct abuf *buf, const char *s, int len)
 				buf->cap *= 2;
 			}
 		}
-		nc = realloc(nc, buf->cap);
+		nc = static_cast<char*>(realloc(nc, buf->cap));
 		assert(nc != NULL);
 	}
 
@@ -483,7 +452,7 @@ erow_init(struct erow *row, int len)
 	row->line = NULL;
 	row->cap = cap_growth(0, len)+1; /* extra byte for NUL end */
 
-	row->line = malloc(row->cap);
+	row->line = static_cast<char*>(malloc(row->cap));
 	assert(row->line != NULL);
 	if (row->line == NULL) {
 		return -1;
@@ -518,8 +487,8 @@ erow_update(struct erow *row)
 		row->rsize = 0;
 	}
 	row->render = NULL;
-	row->render = malloc(
-		row->size + (tabs * (TAB_STOP - 1)) + (ctrl * 3) + 1);
+	row->render = static_cast<char*>(malloc(
+		row->size + (tabs * (TAB_STOP - 1)) + (ctrl * 3) + 1));
 	assert(row->render != NULL);
 
 	for (j = 0; j < row->size; j++) {
@@ -543,7 +512,7 @@ erow_update(struct erow *row)
 
 
 void
-erow_insert(int at, char *s, int len)
+erow_insert(int at, const char *s, int len)
 {
 	struct erow row;
 
@@ -555,8 +524,8 @@ erow_insert(int at, char *s, int len)
 	memcpy(row.line, s, len);
 	row.line[len] = 0;
 
-	editor.row = realloc(editor.row,
-	                     sizeof(struct erow) * (editor.nrows + 1));
+	editor.row = static_cast<struct erow*>(realloc(editor.row,
+	                     sizeof(struct erow) * (editor.nrows + 1)));
 	assert(editor.row != NULL);
 
 	if (at < editor.nrows) {
@@ -625,14 +594,14 @@ killring_start_with_char(unsigned char ch)
 		editor.killring = NULL;
 	}
 
-	editor.killring = malloc(sizeof(struct erow));
+	editor.killring = static_cast<struct erow*>(malloc(sizeof(struct erow)));
 	assert(editor.killring != NULL);
 	assert(erow_init(editor.killring, 0) == 0);
 
 	/* append one char to empty killring without affecting editor.dirty */
 	row = editor.killring;
 
-	row->line = realloc(row->line, row->size + 2);
+	row->line = static_cast<char*>(realloc(row->line, row->size + 2));
 	assert(row->line != NULL);
 	row->line[row->size] = ch;
 	row->size++;
@@ -652,7 +621,7 @@ killring_append_char(unsigned char ch)
 	}
 
 	row = editor.killring;
-	row->line = realloc(row->line, row->size + 2);
+	row->line = static_cast<char*>(realloc(row->line, row->size + 2));
 	assert(row->line != NULL);
 	row->line[row->size] = ch;
 	row->size++;
@@ -670,7 +639,7 @@ killring_prepend_char(unsigned char ch)
 	}
 
 	struct erow *row = editor.killring;
-	row->line = realloc(row->line, row->size + 2);
+	row->line = static_cast<char*>(realloc(row->line, row->size + 2));
 	assert(row->line != NULL);
 	memmove(&row->line[1], &row->line[0], row->size + 1);
 	row->line[0] = ch;
@@ -1058,7 +1027,7 @@ delete_row(int at)
 void
 row_append_row(struct erow *row, char *s, int len)
 {
-	row->line = realloc(row->line, row->size + len + 1);
+	row->line = static_cast<char*>(realloc(row->line, row->size + len + 1));
 	assert(row->line != NULL);
 	memcpy(&row->line[row->size], s, len);
 	row->size += len;
@@ -1079,7 +1048,7 @@ row_insert_ch(struct erow *row, int at, int16_t c)
 	}
 	assert(c > 0);
 
-	row->line = realloc(row->line, row->size + 2);
+	row->line = static_cast<char*>(realloc(row->line, row->size + 2));
 	assert(row->line != NULL);
 	memmove(&row->line[at + 1], &row->line[at], row->size - at + 1);
 	row->size++;
@@ -1255,7 +1224,7 @@ rows_to_buffer(int *buflen)
 	}
 
 	*buflen = len;
-	buf = malloc(len);
+	buf = static_cast<char*>(malloc(len));
 	assert(buf != NULL);
 	p = buf;
 
@@ -1437,10 +1406,10 @@ get_keypress(void)
 
 
 char *
-editor_prompt(char *prompt, void (*cb)(char *, int16_t))
+editor_prompt(const char *prompt, void (*cb)(char *, int16_t))
 {
 	size_t bufsz 	= 128;
-	char *buf	= malloc(bufsz);
+	char *buf	= static_cast<char*>(malloc(bufsz));
 	size_t buflen	= 0;
 	int16_t		c;
 
@@ -1472,7 +1441,7 @@ editor_prompt(char *prompt, void (*cb)(char *, int16_t))
 		} else if ((c == TAB_KEY) || (c >= 0x20 && c != 0x7f)) {
 			if (buflen == bufsz - 1) {
 				bufsz *= 2;
-				buf = realloc(buf, bufsz);
+				buf = static_cast<char*>(realloc(buf, bufsz));
 				assert(buf != NULL);
 			}
 
@@ -1724,7 +1693,7 @@ get_cloc_code_lines(const char* filename)
 	if (editor.filename == NULL) {
 		snprintf(command, sizeof(command),
 			"buffer has no associated file.");
-		result = malloc((strnlen(command, sizeof(command))) + 1);
+		result = static_cast<char*>(malloc((strnlen(command, sizeof(command))) + 1));
 		assert(result != NULL);
 		strcpy(result, command);
 		return result;
@@ -1733,7 +1702,7 @@ get_cloc_code_lines(const char* filename)
 	if (editor.dirty) {
 		snprintf(command, sizeof(command),
 			"buffer must be saved first.");
-		result = malloc((strnlen(command, sizeof(command))) + 1);
+		result = static_cast<char*>(malloc((strnlen(command, sizeof(command))) + 1));
 		assert(result != NULL);
 		strcpy(result, command);
 		return result;
@@ -1747,7 +1716,7 @@ get_cloc_code_lines(const char* filename)
 	pipe = popen(command, "r");
 	if (!pipe) {
 		snprintf(command, sizeof(command), "Error getting LOC: %s", strerror(errno));
-		result = (char *)malloc(sizeof(buffer) + 1);
+		result = static_cast<char*>(malloc(sizeof(buffer) + 1));
 		return NULL;
 	}
 
@@ -1757,7 +1726,7 @@ get_cloc_code_lines(const char* filename)
 			buffer[len - 1] = '\0';
 		}
 
-		result = malloc(strlen(buffer) + 1);
+		result = static_cast<char*>(malloc(strlen(buffer) + 1));
 		assert(result != NULL);
 		if (result) {
 			strcpy(result, buffer);
@@ -1767,7 +1736,7 @@ get_cloc_code_lines(const char* filename)
 	}
 
 	pclose(pipe);
-	char *zero = malloc(2);
+	char *zero = static_cast<char*>(malloc(2));
 	if (zero) {
 		strcpy(zero, "0");
 		return zero;
@@ -2088,7 +2057,7 @@ draw_rows(struct abuf *ab)
 {
 	assert(editor.cols >= 0);
 
-	char buf[editor.cols];
+	char *buf = new char[editor.cols];
 	int buflen, filerow, padding;
 	int y;
 
@@ -2097,7 +2066,7 @@ draw_rows(struct abuf *ab)
 		if (filerow >= editor.nrows) {
 			if ((editor.nrows == 0) && (y == editor.rows / 3)) {
 				buflen = snprintf(buf,
-				                  sizeof(buf),
+				                  editor.cols,
 				                  "%s",
 				                  KE_VERSION);
 				padding = (editor.rows - buflen) / 2;
@@ -2130,6 +2099,7 @@ draw_rows(struct abuf *ab)
 		ab_append(ab, ESCSEQ "K", 3);
 		ab_append(ab, "\r\n", 2);
 	}
+	delete[] buf;
 }
 
 
@@ -2152,14 +2122,14 @@ status_mode_char(void)
 void
 draw_status_bar(struct abuf *ab)
 {
-	char status[editor.cols];
-	char rstatus[editor.cols];
-	char mstatus[editor.cols];
+	char *status = new char[editor.cols];
+	char *rstatus = new char[editor.cols];
+	char *mstatus = new char[editor.cols];
 
 	int len, rlen;
 
 	len = snprintf(status,
-	               sizeof(status),
+	               editor.cols,
 	               "%c%cke: %.20s - %d lines",
 	               status_mode_char(),
 	               editor.dirty ? '!' : '-',
@@ -2168,16 +2138,16 @@ draw_status_bar(struct abuf *ab)
 
 	if (editor.mark_set) {
 		snprintf(mstatus,
-		         sizeof(mstatus),
+		         editor.cols,
 		         " | M: %d, %d ",
 		         editor.mark_curx + 1,
 		         editor.mark_cury + 1);
 	} else {
-		snprintf(mstatus, sizeof(mstatus), " | M:clear ");
+		snprintf(mstatus, editor.cols, " | M:clear ");
 	}
 
 	rlen = snprintf(rstatus,
-	                sizeof(rstatus),
+	                editor.cols,
 	                "L%d/%d C%d %s",
 	                editor.cury + 1,
 	                editor.nrows,
@@ -2196,6 +2166,9 @@ draw_status_bar(struct abuf *ab)
 	}
 	ab_append(ab, ESCSEQ "m", 3);
 	ab_append(ab, "\r\n", 2);
+	delete[] status;
+	delete[] rstatus;
+	delete[] mstatus;
 }
 
 

@@ -1,30 +1,64 @@
+# CMake configuration for Kyle's Editor (ke)
 cmake_minimum_required(VERSION 3.15)
-project(ke C)  # Specify C language explicitly
+project(ke VERSION 1.3.3 LANGUAGES CXX)
 
-set(CMAKE_C_STANDARD 99)
+# Project metadata
 set(KE_VERSION "1.3.3")
 
-set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -D_XOPEN_SOURCE")
+# C++17 standard requirement
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Optionally enable AddressSanitizer (ASan)
+# Source files
+set(KE_SOURCES
+    main.cc
+    abuf.cc
+    erow.cc
+)
+
+# Header files
+set(KE_HEADERS
+    ke_constants.h
+    abuf.h
+    erow.h
+)
+
+# Build options
 option(ENABLE_ASAN "Enable AddressSanitizer for builds" OFF)
 
-if (ENABLE_ASAN)
+# Create executable target
+add_executable(ke ${KE_SOURCES})
+
+# Target compile features
+target_compile_features(ke PRIVATE cxx_std_17)
+
+# Target compile options
+target_compile_options(ke PRIVATE
+    -Wall
+    -Wextra
+    -pedantic
+    -Wshadow
+    -Werror
+    -g
+)
+
+# Target compile definitions
+target_compile_definitions(ke PRIVATE
+    KE_VERSION="ke version ${KE_VERSION}"
+    _DEFAULT_SOURCE
+    _XOPEN_SOURCE
+)
+
+# AddressSanitizer support
+if(ENABLE_ASAN)
     message(STATUS "ASan enabled")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
-    # Ensure the sanitizer is linked too (especially important on some platforms)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+    target_compile_options(ke PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    target_link_options(ke PRIVATE -fsanitize=address)
 endif()
 
+# Installation rules
 include(GNUInstallDirs)
-
-# Add executable
-add_executable(ke main.c)
-target_compile_definitions(ke PRIVATE KE_VERSION="ke version ${KE_VERSION}")
-install(TARGETS ke RUNTIME DESTINATION bin)
-install(FILES ke.1 TYPE MAN)
-
 install(TARGETS ke RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES ke.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
