@@ -1,7 +1,8 @@
 {
   lib,
-  installShellFiles,
   stdenv,
+  cmake,
+  installShellFiles,
   ...
 }:
 stdenv.mkDerivation {
@@ -10,7 +11,12 @@ stdenv.mkDerivation {
 
   src = lib.cleanSource ./.;
 
-  nativeBuildInputs = [ installShellFiles ];
+  nativeBuildInputs = [ cmake installShellFiles ];
+
+  cmakeFlags = [
+    "-DENABLE_ASAN=on"
+    "-DCMAKE_BUILD_TYPE=Debug"
+  ];
 
   installPhase = ''
     runHook preInstall
