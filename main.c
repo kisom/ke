@@ -1752,13 +1752,11 @@ get_cloc_code_lines(const char* filename)
 	}
 
 	if (fgets(buffer, sizeof(buffer), pipe) != NULL) {
-		// Remove trailing newline
 		len = strlen(buffer);
 		if (len > 0 && buffer[len - 1] == '\n') {
 			buffer[len - 1] = '\0';
 		}
 
-		// Allocate and copy the string
 		result = malloc(strlen(buffer) + 1);
 		assert(result != NULL);
 		if (result) {
@@ -2312,7 +2310,6 @@ loop(void)
 int
 main(int argc, char *argv[])
 {
-	// Set locale for proper UTF-8 handling
 	setlocale(LC_ALL, "");
 
 	setup_terminal();
