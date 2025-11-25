@@ -152,9 +152,13 @@ void		 killring_append_char(unsigned char ch);
 void		 killring_prepend_char(unsigned char ch);
 void		 toggle_markset(void);
 int		 cursor_after_mark(void);
+int		 count_chars_from_cursor_to_mark(void);
+void		 kill_region(void);
 void		 indent_region(void);
+void		 delete_region(void);
 
 /* miscellaneous */
+void		 kwrite(int fd, const char *buf, int len);
 void		 die(const char *s);
 int		 get_winsz(int *rows, int *cols);
 void		 goto_line(void);
