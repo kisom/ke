@@ -699,12 +699,49 @@ cursor_after_mark(void)
 
 
 void
+kill_region(void)
+{
+	int		curx = editor.curx;
+	int		cury = editor.cury;
+
+	if (!editor.mark_set) {
+		return;
+	}
+
+	/* kill the current killring */
+	killring_flush();
+
+	if (!cursor_after_mark()) {
+		/* gotta flex sometimes */
+		curx ^= cury;
+		cury ^= curx;
+		cury ^= curx;
+	}
+
+	editor.curx = editor.mark_curx;
+	editor.cury = editor.mark_cury;
+
+	while (editor.cury != cury) {
+		while (!cursor_at_eol()) {
+			killring_append_char(editor.row[editor.cury].line[editor.curx]);
+			move_cursor(ARROW_RIGHT);
+		}
+		killring_append_char('\n');
+	}
+
+	while (editor.curx != curx) {
+		killring_append_char(editor.row[editor.cury].line[editor.curx]);
+		move_cursor(ARROW_RIGHT);
+	}
+
+	editor_set_status("Region killed.");
+	editor.mark_set = 0;
+}
+
+
+void
 die(const char *s)
 {
-	/*
-	 * NOTE(kyle): this is a duplication of the code in display.c
-	 * but I would like to be able to import these files from there.
-	 */
 	write(STDOUT_FILENO, "\x1b[2J", 4);
 	write(STDOUT_FILENO, "\x1b[H", 3);
 
@@ -1754,6 +1791,12 @@ process_escape(int16_t c)
 		case 'm':
 			toggle_markset();
 			break;
+		case 'w':
+			if (!editor.mark_set) {
+				editor_set_status("mark isn't set");
+				break;
+			}
+			kill_region();
 		case BACKSPACE:
 			delete_prev_word();
 			break;
