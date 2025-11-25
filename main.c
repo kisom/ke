@@ -874,11 +874,13 @@ goto_line(void)
 	if (lineno < 1 || lineno >= editor.nrows) {
 		editor_set_status("Line number must be between 1 and %d.",
 		                  editor.nrows);
+		free(query);
 		return;
 	}
 
 	editor.cury = lineno - 1;
 	editor.rowoffs = editor.cury - (editor.rows / 2);
+	free(query);
 }
 
 
@@ -1439,17 +1441,17 @@ get_keypress(void)
 char *
 editor_prompt(char *prompt, void (*cb)(char *, int16_t))
 {
-	size_t bufsz 	= 128;
-	char *buf	= malloc(bufsz);
-	size_t buflen	= 0;
-	int16_t		c;
+	size_t bufsz = 128;
+	char *buf = malloc(bufsz);
+	size_t buflen = 0;
+	int16_t c;
 
 	buf[0] = '\0';
 
 	while (1) {
 		editor_set_status(prompt, buf);
 		display_refresh();
-		while ((c = get_keypress()) <= 0) ;
+		while ((c = get_keypress()) <= 0);
 		if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
 			if (buflen != 0) {
 				buf[--buflen] = '\0';
@@ -1469,7 +1471,7 @@ editor_prompt(char *prompt, void (*cb)(char *, int16_t))
 				}
 				return buf;
 			}
-		} else if ((c == TAB_KEY) || (c >= 0x20 && c != 0x7f)) {
+		} else if ((c == TAB_KEY) || (c >= 0x20 && c < 0x7f)) {
 			if (buflen == bufsz - 1) {
 				bufsz *= 2;
 				buf = realloc(buf, bufsz);
