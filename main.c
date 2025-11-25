@@ -351,6 +351,15 @@ nibble_to_hex(char c)
 }
 
 
+void
+swap_int(int *a, int *b)
+{
+	*a ^= *b;
+	*b ^= *a;
+	*a ^= *b;
+}
+
+
 int
 erow_render_to_cursor(struct erow *row, int cx)
 {
@@ -700,11 +709,48 @@ cursor_after_mark(void)
 }
 
 
+int
+count_chars_from_cursor_to_mark(void)
+{
+	int count = 0;
+	int curx = editor.curx;
+	int cury = editor.cury;
+
+	int markx = editor.mark_curx;
+	int marky = editor.mark_cury;
+
+	if (!cursor_after_mark()) {
+		swap_int(&curx, &markx);
+		swap_int(&curx, &marky);
+	}
+
+	editor.curx = markx;
+	editor.cury = marky;
+
+	while (editor.cury != cury) {
+		while (!cursor_at_eol()) {
+			move_cursor(ARROW_RIGHT);
+			count++;
+		}
+		count++;
+	}
+
+	while (editor.curx != curx) {
+		count++;
+		move_cursor(ARROW_RIGHT);
+	}
+
+	return count;
+}
+
+
 void
 kill_region(void)
 {
-	int		curx = editor.curx;
-	int		cury = editor.cury;
+	int	curx	= editor.curx;
+	int	cury	= editor.cury;
+	int	markx	= editor.mark_curx;
+	int	marky	= editor.mark_cury;
 
 	if (!editor.mark_set) {
 		return;
@@ -713,15 +759,14 @@ kill_region(void)
 	/* kill the current killring */
 	killring_flush();
 
+
 	if (!cursor_after_mark()) {
-		/* gotta flex sometimes */
-		curx ^= cury;
-		cury ^= curx;
-		cury ^= curx;
+		swap_int(&curx, &markx);
+		swap_int(&curx, &marky);
 	}
 
-	editor.curx = editor.mark_curx;
-	editor.cury = editor.mark_cury;
+	editor.curx = markx;
+	editor.cury = marky;
 
 	while (editor.cury != cury) {
 		while (!cursor_at_eol()) {
@@ -739,6 +784,26 @@ kill_region(void)
 
 	editor_set_status("Region killed.");
 	editor.mark_set = 0;
+}
+
+
+/* call after kill_region */
+void
+delete_region(void)
+{
+	int	count	= count_chars_from_cursor_to_mark();
+	int	killed	= 0;
+
+	if (!editor.mark_set) {
+		return;
+	}
+
+
+	while (killed < count) {
+		move_cursor(ARROW_LEFT);
+		deletech(KILLRING_NO_OP);
+		killed++;
+	}
 }
 
 
@@ -1752,6 +1817,10 @@ process_normal(int16_t c)
 			break;
 		case CTRL_KEY('s'):
 			editor_find();
+			break;
+		case CTRL_KEY('w'):
+			kill_region();
+			delete_region();
 			break;
 		case CTRL_KEY('y'):
 			killring_yank();
