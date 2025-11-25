@@ -732,6 +732,8 @@ count_chars_from_cursor_to_mark(void)
 			move_cursor(ARROW_RIGHT);
 			count++;
 		}
+
+		move_cursor(ARROW_RIGHT);
 		count++;
 	}
 
@@ -800,7 +802,7 @@ delete_region(void)
 
 
 	while (killed < count) {
-		move_cursor(ARROW_LEFT);
+		move_cursor(ARROW_RIGHT);
 		deletech(KILLRING_NO_OP);
 		killed++;
 	}
