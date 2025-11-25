@@ -161,6 +161,7 @@ void		 delete_region(void);
 void		 kwrite(int fd, const char *buf, int len);
 void		 die(const char *s);
 int		 get_winsz(int *rows, int *cols);
+void		 jump_to_position(int col, int row);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
 void		 delete_row(int at);
@@ -857,13 +858,16 @@ delete_region(void)
 		swap_int(&cury, &marky);
 	}
 
-	editor.curx = markx;
-	editor.cury = marky;
+	jump_to_position(markx, marky);
 
 	while (killed < count) {
 		move_cursor(ARROW_RIGHT);
 		deletech(KILLRING_NO_OP);
 		killed++;
+	}
+
+	while (editor.curx != markx && editor.cury != marky) {
+		deletech(KILLRING_NO_OP);
 	}
 
 	editor.kill = 1;
@@ -921,6 +925,15 @@ get_winsz(int *rows, int *cols)
 
 
 void
+jump_to_position(const int x, const int y)
+{
+	editor.curx = x;
+	editor.cury = y;
+
+	editor.rowoffs = editor.cury - (editor.rows / 2);
+}
+
+void
 goto_line(void)
 {
 	int lineno = 0;
@@ -938,8 +951,7 @@ goto_line(void)
 		return;
 	}
 
-	editor.cury = lineno - 1;
-	editor.rowoffs = editor.cury - (editor.rows / 2);
+	jump_to_position(0, lineno - 1);
 	free(query);
 }
 
@@ -1560,7 +1572,7 @@ editor_find_callback(char *query, int16_t c)
 	char *match;
 	struct erow *row;
 
-	if (c == '\r' || c == ESC_KEY) {
+	if (c == '\r' || c == ESC_KEY || c == CTRL_KEY('g')) {
 		/* reset search */
 		lmatch = -1;
 		dir = 1;
@@ -1929,7 +1941,6 @@ process_kcommand(int16_t c)
 
 			break;
 		case 'g':
-		case CTRL_KEY('g'):
 			goto_line();
 			break;
 		case BACKSPACE:
@@ -1975,13 +1986,20 @@ process_kcommand(int16_t c)
 		case 'y':
 			killring_yank();
 			break;
+		case ESC_KEY:
+		case CTRL_KEY('g'):
+			break;
 		default:
+			if (isprint(c)) {
+				editor_set_status("unknown kcommand '%c'", c);
+				break;
+			}
+
 			editor_set_status("unknown kcommand: %04x", c);
 			return;
 	}
 
 	editor.dirtyex = 1;
-	return;
 }
 
 
@@ -2012,6 +2030,8 @@ process_normal(int16_t c)
 			} else {
 				deletech(KILLRING_PREPEND);
 			}
+			break;
+		case CTRL_KEY('g'):
 			break;
 		case CTRL_KEY('l'):
 			display_refresh();
@@ -2084,6 +2104,9 @@ process_escape(int16_t c)
 		case BACKSPACE:
 			delete_prev_word();
 			break;
+		case ESC_KEY:
+		case CTRL_KEY('g'):
+			break; /* escape out of escape-mode */
 		default:
 			editor_set_status("unknown ESC key: %04x", c);
 	}

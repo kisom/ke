@@ -22,6 +22,7 @@ grandeur. Many commands work with and without control; for example,
 saving a file can be done with either C-k s or C-k C-s. Other commands work
 with ESC or CTRL.
 .Sh K-COMMANDS
+k-command mode can be exited with ESC or C-g.
 .Bl -tag -width xxxxxxxxxxxx -offset indent
 .It C-k BACKSPACE
 Delete from the cursor to the beginning of the line.
@@ -36,7 +37,7 @@ Edit a new file. Also C-k C-e.
 .It C-k f
 Incremental find.
 .It C-k g
-Go to a specific line. Also C-k C-g.
+Go to a specific line.
 .It C-k l
 List the number of lines of code in a saved file.
 .It C-k m
@@ -54,6 +55,8 @@ Dump core.
 .El
 .Sh OTHER KEYBINDINGS
 .Bl -tag -width xxxxxxxxxxxx -offset indent
+.It C-g
+In general, C-g cancels an operation.
 .It C-l
 Refresh the display.
 .It C-s
