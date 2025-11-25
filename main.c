@@ -480,7 +480,7 @@ erow_init(struct erow *row, int len)
 	row->rsize = 0;
 	row->render = NULL;
 	row->line = NULL;
-	row->cap = cap_growth(0, len);
+	row->cap = cap_growth(0, len)+1; /* extra byte for NUL end */
 
 	row->line = malloc(row->cap);
 	assert(row->line != NULL);
@@ -818,6 +818,9 @@ delete_region(void)
 		deletech(KILLRING_NO_OP);
 		killed++;
 	}
+
+	editor.kill = 1;
+	editor_set_status("Region killed.");
 }
 
 
@@ -1708,9 +1711,56 @@ newline(void)
 }
 
 
+char *
+get_cloc_code_lines(const char* filename)
+{
+	// Build the shell command dynamically
+	char command[512];
+	snprintf(command,
+	         sizeof(command),
+	         "cloc --quiet %s | tail -2 | head -1 | awk '{print $5}'",
+	         filename);
+
+	// Open a pipe to run the command
+	FILE *pipe = popen(command, "r");
+	if (!pipe) {
+		return NULL; // Error opening pipe
+	}
+
+	// Read the output (single line/number)
+	char buffer[256];
+	if (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+		// Remove trailing newline
+		size_t len = strlen(buffer);
+		if (len > 0 && buffer[len - 1] == '\n') {
+			buffer[len - 1] = '\0';
+		}
+
+		// Allocate and copy the string
+		char *result = malloc(strlen(buffer) + 1);
+		if (result) {
+			strcpy(result, buffer);
+			pclose(pipe);
+			return result;
+		}
+	}
+
+	// On error or empty output, return "0"
+	pclose(pipe);
+	char *zero = malloc(2);
+	if (zero) {
+		strcpy(zero, "0");
+		return zero;
+	}
+	return NULL;
+}
+
+
 void
 process_kcommand(int16_t c)
 {
+	char	*buf = NULL;
+
 	switch (c) {
 		case ' ':
 			toggle_markset();
@@ -1772,6 +1822,12 @@ process_kcommand(int16_t c)
 			break;
 		case 'f':
 			editor_find();
+			break;
+		case 'l':
+			buf = get_cloc_code_lines(editor.filename);
+
+			editor_set_status("Lines of code: %s", buf);
+			free(buf);
 			break;
 		case 'm':
 			if (system("make") != 0) {
