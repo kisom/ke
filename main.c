@@ -21,6 +21,7 @@
 #include <string.h>
 #include <locale.h>
 #include <wchar.h>
+#include <wctype.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -1589,6 +1590,41 @@ editor_openfile(void)
 }
 
 
+int
+first_nonwhitespace(struct erow *row)
+{
+	int pos;
+	wchar_t wc;
+	mbstate_t state;
+	size_t len;
+
+	if (row == NULL) {
+		return 0;
+	}
+
+	memset(&state, 0, sizeof(state));
+	pos = 0;
+	while (pos < row->size) {
+		len = mbrtowc(&wc, &row->line[pos], row->size - pos, &state);
+		if (len == (size_t) -1 || len == (size_t) -2) {
+			/* Invalid or incomplete sequence, stop here */
+			break;
+		}
+		if (len == 0) {
+			/* Null character, stop here */
+			break;
+		}
+		if (!iswspace(wc)) {
+			/* Found non-whitespace character */
+			break;
+		}
+		pos += len;
+	}
+
+	return pos;
+}
+
+
 void
 move_cursor(int16_t c)
 {
@@ -1598,86 +1634,97 @@ move_cursor(int16_t c)
 	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
 
 	switch (c) {
-		case ARROW_UP:
-		case CTRL_KEY('p'):
-			if (editor.cury > 0) {
-				editor.cury--;
-			}
-			break;
-		case ARROW_DOWN:
-		case CTRL_KEY('n'):
-			if (editor.cury < editor.nrows) {
-				editor.cury++;
-			}
-			break;
-		case ARROW_RIGHT:
-		case CTRL_KEY('f'):
-			if (row && editor.curx < row->size) {
+	case ARROW_UP:
+	case CTRL_KEY('p'):
+		if (editor.cury > 0) {
+			editor.cury--;
+			row = (editor.cury >= editor.nrows)
+				      ? NULL
+				      : &editor.row[editor.cury];
+			editor.curx = first_nonwhitespace(row);
+		}
+		break;
+	case ARROW_DOWN:
+	case CTRL_KEY('n'):
+		if (editor.cury < editor.nrows) {
+			editor.cury++;
+			row = (editor.cury >= editor.nrows)
+				      ? NULL
+				      : &editor.row[editor.cury];
+			editor.curx = first_nonwhitespace(row);
+		}
+		break;
+	case ARROW_RIGHT:
+	case CTRL_KEY('f'):
+		if (row && editor.curx < row->size) {
+			editor.curx++;
+			/* skip over UTF-8 continuation bytes */
+			while (row && editor.curx < row->size &&
+			       ((unsigned char) row->line[editor.curx] &
+			        0xC0) == 0x80) {
 				editor.curx++;
-				/* skip over UTF-8 continuation bytes */
-				while (row && editor.curx < row->size &&
-				       ((unsigned char) row->line[editor.curx] &
-				        0xC0) == 0x80) {
-					editor.curx++;
-				}
-			} else if (row && editor.curx == row->size) {
-				editor.cury++;
-				editor.curx = 0;
 			}
-			break;
-		case ARROW_LEFT:
-		case CTRL_KEY('b'):
-			if (editor.curx > 0) {
+		} else if (row && editor.curx == row->size) {
+			editor.cury++;
+			row = (editor.cury >= editor.nrows)
+				      ? NULL
+				      : &editor.row[editor.cury];
+			editor.curx = first_nonwhitespace(row);
+		}
+		break;
+	case ARROW_LEFT:
+	case CTRL_KEY('b'):
+		if (editor.curx > 0) {
+			editor.curx--;
+			/* move to the start byte if we landed on a continuation */
+			while (editor.curx > 0 &&
+			       ((unsigned char) row->line[editor.curx] &
+			        0xC0) == 0x80) {
 				editor.curx--;
-				/* move to the start byte if we landed on a continuation */
-				while (editor.curx > 0 &&
-				       ((unsigned char) row->line[editor.curx] &
-				        0xC0) == 0x80) {
-					editor.curx--;
-				}
-			} else if (editor.cury > 0) {
-				editor.cury--;
-				editor.curx = editor.row[editor.cury].size;
-				/* ensure at a codepoint boundary at end of previous line */
-				row = &editor.row[editor.cury];
-				while (editor.curx > 0 &&
-				       ((unsigned char) row->line[editor.curx] &
-				        0xC0) == 0x80) {
-					editor.curx--;
-				}
 			}
-			break;
-		case PG_UP:
-		case PG_DN:
-			if (c == PG_UP) {
-				editor.cury = editor.rowoffs;
-			} else if (c == PG_DN) {
-				editor.cury = editor.rowoffs + editor.rows - 1;
-				if (editor.cury > editor.nrows) {
-					editor.cury = editor.nrows;
-				}
-			}
-
-			reps = editor.rows;
-			while (--reps) {
-				move_cursor(c == PG_UP ? ARROW_UP : ARROW_DOWN);
-			}
-
-			break;
-
-		case HOME_KEY:
-		case CTRL_KEY('a'):
-			editor.curx = 0;
-			break;
-		case END_KEY:
-		case CTRL_KEY('e'):
-			if (editor.nrows == 0) {
-				break;
-			}
+		} else if (editor.cury > 0) {
+			editor.cury--;
 			editor.curx = editor.row[editor.cury].size;
+			/* ensure at a codepoint boundary at end of previous line */
+			row = &editor.row[editor.cury];
+			while (editor.curx > 0 &&
+			       ((unsigned char) row->line[editor.curx] &
+			        0xC0) == 0x80) {
+				editor.curx--;
+			}
+		}
+		break;
+	case PG_UP:
+	case PG_DN:
+		if (c == PG_UP) {
+			editor.cury = editor.rowoffs;
+		} else if (c == PG_DN) {
+			editor.cury = editor.rowoffs + editor.rows - 1;
+			if (editor.cury > editor.nrows) {
+				editor.cury = editor.nrows;
+			}
+		}
+
+		reps = editor.rows;
+		while (--reps) {
+			move_cursor(c == PG_UP ? ARROW_UP : ARROW_DOWN);
+		}
+
+		break;
+
+	case HOME_KEY:
+	case CTRL_KEY('a'):
+		editor.curx = 0;
+		break;
+	case END_KEY:
+	case CTRL_KEY('e'):
+		if (editor.nrows == 0) {
 			break;
-		default:
-			break;
+		}
+		editor.curx = editor.row[editor.cury].size;
+		break;
+	default:
+		break;
 	}
 
 
