@@ -3,8 +3,9 @@ KE_VERSION :=		devel
 DEST :=			$(HOME)/.local/bin/$(TARGET)
 
 CFLAGS :=	-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g
+CFLAGS +=	-Wno-unused-result
 CFLAGS +=	-D_DEFAULT_SOURCE -D_XOPEN_SOURCE
-CFLAGS +=	-fsanitize=address -fno-omit-frame-pointer
+CFLAGS +=	-fsanitize=address -fno-omit-frame-pointer 
 
 LDFLAGS :=	-fsanitize=address
 

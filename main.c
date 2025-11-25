@@ -828,8 +828,8 @@ delete_region(void)
 void
 die(const char *s)
 {
-	write(STDOUT_FILENO, "\x1b[2J", 4);
-	write(STDOUT_FILENO, "\x1b[H", 3);
+	(void)write(STDOUT_FILENO, "\x1b[2J", 4);
+	(void)write(STDOUT_FILENO, "\x1b[H", 3);
 
 	perror(s);
 	exit(1);
@@ -2054,8 +2054,8 @@ void
 display_clear(struct abuf *ab)
 {
 	if (ab == NULL) {
-		write(STDOUT_FILENO, ESCSEQ "2J", 4);
-		write(STDOUT_FILENO, ESCSEQ "H", 3);
+		(void)write(STDOUT_FILENO, ESCSEQ "2J", 4);
+		(void)write(STDOUT_FILENO, ESCSEQ "H", 3);
 	} else {
 		ab_append(ab, ESCSEQ "2J", 4);
 		ab_append(ab, ESCSEQ "H", 3);
@@ -2269,7 +2269,7 @@ display_refresh(void)
 	/* ab_append(&ab, ESCSEQ "1;2H", 7); */
 	ab_append(&ab, ESCSEQ "?25h", 6);
 
-	write(STDOUT_FILENO, ab.b, ab.len);
+	(void)write(STDOUT_FILENO, ab.b, ab.len);
 	ab_free(&ab);
 }
 
