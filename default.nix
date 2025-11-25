@@ -11,7 +11,10 @@ stdenv.mkDerivation {
 
   src = lib.cleanSource ./.;
 
-  nativeBuildInputs = [ cmake installShellFiles ];
+  nativeBuildInputs = [
+    cmake
+    installShellFiles
+  ];
 
   cmakeFlags = [
     "-DENABLE_ASAN=on"
@@ -24,10 +27,8 @@ stdenv.mkDerivation {
     mkdir -p $out/bin
     cp ke $out/bin/
 
-    runHook postInstall
-  '';
+    installManPage ../ke.1
 
-  postInstall = ''
-    installManPage ke.1
+    runHook postInstall
   '';
 }
