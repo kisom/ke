@@ -6,6 +6,7 @@ CFLAGS :=	-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g
 CFLAGS +=	-Wno-unused-result
 CFLAGS +=	-D_DEFAULT_SOURCE -D_XOPEN_SOURCE
 CFLAGS +=	-fsanitize=address -fno-omit-frame-pointer 
+CFLAGS +=	-fprofile-instr-generate -fcoverage-mapping
 
 LDFLAGS :=	-fsanitize=address
 

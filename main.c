@@ -98,7 +98,7 @@ struct erow {
 };
 
 
-typedef enum undo_flag {
+typedef enum undo_type {
 	UNDO_INSERT       = 1 << 0, /* insertch */
 	UNDO_DELETE       = 1 << 1, /* deletech */
 	UNDO_PASTE        = 1 << 2, /* yank */
@@ -115,7 +115,7 @@ typedef struct undo_node {
 	int			 row, col;
 	struct abuf		 text;
 	struct undo_node	*next;
-	struct undo_node	*child;
+	struct undo_node	*parent;
 } undo_node_t;
 
 
@@ -244,26 +244,17 @@ void		 erow_free(struct erow *row);
  */
 undo_node_t	*undo_node_new(undo_flag_t type);
 void             undo_node_free(undo_node_t *node);
-void             undo_node_free_branch(undo_node_t *node);
 undo_tree_t	*undo_tree_new(void);
-void             undo_tree_free(undo_tree_t *ut);
-int		 undo_continue_pending(undo_flag_t type);
+void             undo_tree_free(undo_tree_t *tree);
 void		 undo_begin(undo_flag_t type);
 void		 undo_append_char(char c);
 void		 undo_append(const char *data, size_t len);
 void		 undo_prepend_char(char c);
 void		 undo_prepend(const char *data, size_t len);
 void		 undo_commit(void);
-void		 undo_discard_redo_branches(struct undo_node *from);
-undo_node_t	*undo_parent_of(undo_node_t *node);
 void		 undo_apply(const undo_node_t *node, int direction);
-// void		 editor_undo(void);
-// void		 editor_redo(void);
-// void		 undo_mark_saved(void);
-// int		 undo_depth(const undo_tree_t *t);
-// int		 undo_can_undo(const undo_tree_t *t);
-// int		 undo_can_redo(const undo_tree_t *t);
-// void		 undo_tree_debug_dump(const undo_tree_t *t);
+void		 editor_undo(void);
+void		 editor_redo(void);
 
 /* kill ring, marking, etc... */
 void		 killring_flush(void);
@@ -479,6 +470,7 @@ reset_editor(void)
 		erow_free(&editor.row[i]);
 	}
 	free(editor.row);
+	editor.row = NULL;
 
 	if (editor.filename != NULL) {
 		free(editor.filename);
@@ -800,18 +792,20 @@ erow_free(struct erow *row)
 	free(row->line);
 	row->render = NULL;
 	row->line = NULL;
+	row->cap = 0;
+	row->size = 0;
 }
 
 
 undo_node_t *
-undo_node_new(undo_flag_t type)
+undo_node_new(const undo_flag_t type)
 {
 	undo_node_t *node = calloc1(sizeof(undo_node_t));
 
 	node->type = type;
 	node->row = node->col = 0;
 	node->next = NULL;
-	node->child = NULL;
+	node->parent = NULL;
 
 	ab_init(&node->text);
 
@@ -826,29 +820,13 @@ undo_node_free(undo_node_t *node)
 		return;
 	}
 
+	assert(node->next->parent == node);
+
 	ab_free(&node->text);
-	undo_node_free(node->child);
-	undo_node_free(node->next);
+	node = node->next;
+	free(node->parent);
+	node->parent = NULL;
 	free(node);
-}
-
-
-void
-undo_node_free_branch(undo_node_t *node)
-{
-	undo_node_t	*next = NULL;
-
-	if (node == NULL) {
-		return;
-	}
-
-	while (node != NULL) {
-		next = node->next;
-		undo_node_free(node->child);
-		ab_free(&node->text);
-		free(node);
-		node = next;
-	}
 }
 
 
@@ -868,52 +846,32 @@ undo_tree_new(void)
 
 
 void
-undo_tree_free(undo_tree_t *ut)
+undo_tree_free(undo_tree_t *tree)
 {
-	if (ut == NULL) {
+	if (tree == NULL) {
 		return;
 	}
 
-	undo_node_free(ut->root);
-	undo_node_free(ut->pending);
+	undo_node_free(tree->root);
+
+	if (tree->pending != NULL) {
+		undo_node_free(tree->pending);
+	}
 
 	if (debug_log == NULL) {
-		ut->root = NULL;
-		ut->current = NULL;
-		ut->saved = NULL;
-		ut->pending = NULL;
+		tree->root = NULL;
+		tree->current = NULL;
+		tree->saved = NULL;
+		tree->pending = NULL;
 	} else {
-		ut->root =
-			ut->current =
-			ut->saved =
-			ut->pending =
+		tree->root =
+			tree->current =
+			tree->saved =
+			tree->pending =
 			(void *)0xDEADBEEF;
 	}
 
-	free(ut);
-}
-
-
-int
-undo_continue_pending(undo_flag_t type)
-{
-	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*node = tree->pending;
-
-	/* no pending node, so we need to start anew. */
-	if (node == NULL) {
-		return 0;
-	}
-
-	if (node->type != type) {
-		return 0;
-	}
-
-	if (node->row != editor.cury || node->col != editor.curx) {
-		return 0;
-	}
-
-	return 1;
+	free(tree);
 }
 
 
@@ -926,15 +884,14 @@ undo_begin(undo_flag_t type)
 {
 	struct undo_tree	*tree = editor.undo;
 
-	if (tree->pending &&
-	    tree->pending->type == type &&
-	    tree->pending->row == editor.cury &&
-	    tree->pending->col + (int)tree->pending->text.len == editor.curx)
-	{
-		return;
-	}
+	assert(tree != NULL);
 
-	undo_commit();
+	if (tree->pending != NULL) {
+		if (tree->pending->type == type) {
+			return;
+		}
+		undo_commit();
+	}
 
 	tree->pending = undo_node_new(type);
 	tree->pending->row = editor.cury;
@@ -986,101 +943,90 @@ undo_prepend(const char *data, const size_t len)
 }
 
 
-/* Finish the current batch and link it into the tree */
+/*
+ * undo_commit commits the current pending tree into the root.
+ *
+ * Finish the current batch and link it into the tree.
+ * */
 void
 undo_commit(void)
 {
 	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*node = NULL;
+
+	assert(tree != NULL);
 
 	if (tree->pending == NULL) {
-		return; /* nothing to commit */
+		return; /* no pending operation */
 	}
-
-	node = tree->pending;
-	tree->pending = NULL;
-
-	if (tree->current && tree->current->child) {
-		undo_node_free_branch(tree->current->child);
-		tree->current->child = NULL;
-	}
-
 
 	if (tree->root == NULL) {
-		/* First edit in the history */
-		tree->root    = node;
-		tree->current = node;
-	} else if (tree->current == NULL) {
-		/* this shouldn't happen, so throw an
-		 * assert to catch it.
-		 */
-		assert(tree->current != NULL);
-		tree->root = tree->current = node;
-	} else {
-		tree->current->child = node;
-		tree->current        = node;
+
 	}
-
-	if (tree->saved && tree->current != tree->saved) {
-		tree->saved = NULL;
-	}
-
-	editor.dirty = 1;
-}
-
-
-void
-undo_discard_redo_branches(struct undo_node *from)
-{
-	undo_node_free(from->child);
-	from->child = NULL;
-
-	undo_node_free(from->next);
-	from->next = NULL;
-}
-
-
-undo_node_t *
-undo_parent_of(undo_node_t *node)
-{
-	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*parent = tree->root;
-
-	if (tree->root == node) {
-		return NULL;
-	}
-
-	parent = tree->root;
-	while (parent != NULL && parent->child != node) {
-		parent = parent->child;
-	}
-
-	if (parent == NULL) {
-		return NULL;
-	}
-
-	return parent;
-}
-
-
-void
-editor_undo(void)
-{
-	editor_set_status("Undo not implemented...");
-}
-
-
-void
-editor_redo(void)
-{
-	editor_set_status("Redo not implemented...");
 }
 
 
 void
 undo_apply(const struct undo_node *node, const int direction)
 {
-	
+	int	 redo;
+
+	assert(node != NULL);
+	redo = direction < 0 ? 1 : 0;
+
+	switch (node->type) {
+	default:
+		if (redo) {
+			editor_set_status("Redo isn't implemented.");
+		} else {
+			editor_set_status("Undo isn't implemented");
+		}
+	}
+}
+
+void
+undo_apply_current(int direction)
+{
+	undo_tree_t	*tree = editor.undo;
+
+	assert(tree != NULL);
+	undo_commit();
+
+	if (tree->current == NULL) {
+		editor_set_status("No further undo.");
+		return;
+	}
+
+	assert(tree->current->next == NULL);
+	undo_apply(tree->current, direction);
+
+	tree->current = tree->current->parent;
+	undo_node_free(tree->current->next);
+}
+
+
+void
+editor_undo(void)
+{
+	/*
+	 * pending should already have been committed, but it doesn't
+	 * hurt to be a little paranoid.
+	 */
+	undo_commit();
+
+	undo_apply_current(1);
+}
+
+
+void
+editor_redo(void)
+{
+	/*
+	 * pending should already have been committed, but it doesn't
+	 * hurt to be a little paranoid.
+	 */
+	undo_commit();
+
+	undo_apply_current(-1);
 }
 
 
@@ -2882,7 +2828,7 @@ process_normal(int16_t c)
 			killring_yank();
 		}
 		break;
-		
+
 	case ESC_KEY:
 		editor.mode = MODE_ESCAPE;
 		break;
@@ -3405,11 +3351,7 @@ deathknell(void)
 		debug_log = NULL;
 	}
 
-	if (editor.killring != NULL) {
-		erow_free(editor.killring);
-		free(editor.killring);
-		editor.killring = NULL;
-	}
+	killring_flush();
 
 	reset_editor();
 	disable_termraw();
