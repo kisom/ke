@@ -76,7 +76,7 @@ static FILE* debug_log = NULL;
 
 /* append buffer */
 struct abuf {
-	char* b;
+	char *b;
 	int len;
 	int cap;
 };
@@ -86,8 +86,8 @@ struct abuf {
 
 /* editor row */
 struct erow {
-	char* line;
-	char* render;
+	char *line;
+	char *render;
 
 	int size;
 	int rsize;
@@ -147,15 +147,15 @@ int		 cap_growth(int cap, int sz);
 size_t		 kstrnlen(const char *buf, const size_t max);
 void		 init_editor(void);
 void		 reset_editor(void);
-void		 ab_append(struct abuf* buf, const char* s, int len);
-void		 ab_free(struct abuf* buf);
+void		 ab_append(struct abuf *buf, const char *s, int len);
+void		 ab_free(struct abuf *buf);
 char		 nibble_to_hex(char c);
-int		 erow_render_to_cursor(struct erow* row, int cx);
-int		 erow_cursor_to_render(struct erow* row, int rx);
-int		 erow_init(struct erow* row, int len);
-void		 erow_update(struct erow* row);
-void		 erow_insert(int at, char* s, int len);
-void		 erow_free(struct erow* row);
+int		 erow_render_to_cursor(struct erow *row, int cx);
+int		 erow_cursor_to_render(struct erow *row, int rx);
+int		 erow_init(struct erow *row, int len);
+void		 erow_update(struct erow *row);
+void		 erow_insert(int at, char *s, int len);
+void		 erow_free(struct erow *row);
 
 /* kill ring, marking, etc */
 void		 killring_flush(void);
@@ -171,47 +171,47 @@ void		 indent_region(void);
 void		 delete_region(void);
 
 /* miscellaneous */
-void		 kwrite(int fd, const char* buf, int len);
-void		 die(const char* s);
-int		 get_winsz(int* rows, int* cols);
+void		 kwrite(int fd, const char *buf, int len);
+void		 die(const char *s);
+int		 get_winsz(int *rows, int *cols);
 void		 jump_to_position(int col, int row);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
 void		 delete_row(int at);
-void		 row_append_row(struct erow* row, char* s, int len);
-void		 row_insert_ch(struct erow* row, int at, int16_t c);
-void		 row_delete_ch(struct erow* row, int at);
+void		 row_append_row(struct erow *row, char *s, int len);
+void		 row_insert_ch(struct erow *row, int at, int16_t c);
+void		 row_delete_ch(struct erow *row, int at);
 void		 insertch(int16_t c);
 void		 deletech(uint8_t op);
-void		 open_file(const char* filename);
-char		*rows_to_buffer(int* buflen);
+void		 open_file(const char *filename);
+char		*rows_to_buffer(int *buflen);
 int		 save_file(void);
 uint16_t	 is_arrow_key(int16_t c);
 int16_t		 get_keypress(void);
 void		 display_refresh(void);
-void		 editor_find_callback(char* query, int16_t c);
+void		 editor_find_callback(char *query, int16_t c);
 void		 editor_find(void);
 char		*editor_prompt(char*, void (*cb)(char*, int16_t));
 void		 editor_openfile(void);
-void		 move_cursor(int16_t c);
+void		 move_cursor(int16_t c, int interactive);
 void		 newline(void);
 void		 process_kcommand(int16_t c);
 void		 process_normal(int16_t c);
 void		 process_escape(int16_t c);
 int		 process_keypress(void);
 void		 enable_termraw(void);
-void		 display_clear(struct abuf* ab);
+void		 display_clear(struct abuf *ab);
 void		 disable_termraw(void);
 void		 setup_terminal(void);
-void		 draw_rows(struct abuf* ab);
+void		 draw_rows(struct abuf *ab);
 char		 status_mode_char(void);
-void		 draw_status_bar(struct abuf* ab);
-void		 draw_message_line(struct abuf* ab);
+void		 draw_status_bar(struct abuf *ab);
+void		 draw_message_line(struct abuf *ab);
 void		 scroll(void);
 void		 display_refresh(void);
-void		 editor_set_status(const char* fmt, ...);
+void		 editor_set_status(const char *fmt, ...);
 void		 loop(void);
-void		 enable_debugging(const char* logfile);
+void		 enable_debugging(const char *logfile);
 void		 deathknell(void);
 static void	 signal_handler(int sig);
 static void	 install_signal_handlers(void);
@@ -222,8 +222,8 @@ static void	 install_signal_handlers(void);
  * Find the first occurrence of find in s, where the search is limited to the
  * first slen characters of s.
  */
-char*
-strnstr(const char* s, const char* find, size_t slen)
+char
+*strnstr(const char *s, const char *find, size_t slen)
 {
 	char c, sc;
 	size_t len;
@@ -375,9 +375,9 @@ reset_editor(void)
 
 
 void
-ab_append(struct abuf* buf, const char* s, int len)
+ab_append(struct abuf *buf, const char *s, int len)
 {
-	char* nc = buf->b;
+	char *nc = buf->b;
 	int sz = buf->len + len;
 
 	if (sz >= buf->cap) {
@@ -399,7 +399,7 @@ ab_append(struct abuf* buf, const char* s, int len)
 
 
 void
-ab_free(struct abuf* buf)
+ab_free(struct abuf *buf)
 {
 	free(buf->b);
 	buf->b = NULL;
@@ -420,7 +420,7 @@ nibble_to_hex(char c)
 
 
 void
-swap_int(int* a, int* b)
+swap_int(int *a, int *b)
 {
 	*a ^= *b;
 	*b ^= *a;
@@ -429,7 +429,7 @@ swap_int(int* a, int* b)
 
 
 int
-erow_render_to_cursor(struct erow* row, int cx)
+erow_render_to_cursor(struct erow *row, int cx)
 {
 	int rx = 0;
 	size_t j = 0;
@@ -485,7 +485,7 @@ erow_render_to_cursor(struct erow* row, int cx)
 
 
 int
-erow_cursor_to_render(struct erow* row, int rx)
+erow_cursor_to_render(struct erow *row, int rx)
 {
 	int cur_rx = 0;
 	size_t j = 0;
@@ -542,7 +542,7 @@ erow_cursor_to_render(struct erow* row, int rx)
 
 
 int
-erow_init(struct erow* row, int len)
+erow_init(struct erow *row, int len)
 {
 	row->size = len;
 	row->rsize = 0;
@@ -562,7 +562,7 @@ erow_init(struct erow* row, int len)
 
 
 void
-erow_update(struct erow* row)
+erow_update(struct erow *row)
 {
 	int i = 0, j;
 	int tabs = 0;
@@ -610,7 +610,7 @@ erow_update(struct erow* row)
 
 
 void
-erow_insert(int at, char* s, int len)
+erow_insert(int at, char *s, int len)
 {
 	struct erow row;
 
@@ -639,7 +639,7 @@ erow_insert(int at, char* s, int len)
 
 
 void
-erow_free(struct erow* row)
+erow_free(struct erow *row)
 {
 	free(row->render);
 	free(row->line);
@@ -684,7 +684,7 @@ killring_yank(void)
 void
 killring_start_with_char(unsigned char ch)
 {
-	struct erow* row = NULL;
+	struct erow *row = NULL;
 
 	if (editor.killring != NULL) {
 		erow_free(editor.killring);
@@ -711,7 +711,7 @@ killring_start_with_char(unsigned char ch)
 void
 killring_append_char(unsigned char ch)
 {
-	struct erow* row = NULL;
+	struct erow *row = NULL;
 
 	if (editor.killring == NULL) {
 		killring_start_with_char(ch);
@@ -736,7 +736,7 @@ killring_prepend_char(unsigned char ch)
 		return;
 	}
 
-	struct erow* row = editor.killring;
+	struct erow *row = editor.killring;
 	row->line = realloc(row->line, row->size + 2);
 	assert(row->line != NULL);
 	memmove(&row->line[1], &row->line[0], row->size + 1);
@@ -797,17 +797,17 @@ count_chars_from_cursor_to_mark(void)
 
 	while (editor.cury != cury) {
 		while (!cursor_at_eol()) {
-			move_cursor(ARROW_RIGHT);
+			move_cursor(ARROW_RIGHT, 1);
 			count++;
 		}
 
-		move_cursor(ARROW_RIGHT);
+		move_cursor(ARROW_RIGHT, 1);
 		count++;
 	}
 
 	while (editor.curx != curx) {
 		count++;
-		move_cursor(ARROW_RIGHT);
+		move_cursor(ARROW_RIGHT, 1);
 	}
 
 	return count;
@@ -840,15 +840,15 @@ kill_region(void)
 	while (editor.cury != cury) {
 		while (!cursor_at_eol()) {
 			killring_append_char(editor.row[editor.cury].line[editor.curx]);
-			move_cursor(ARROW_RIGHT);
+			move_cursor(ARROW_RIGHT, 0);
 		}
 		killring_append_char('\n');
-		move_cursor(ARROW_RIGHT);
+		move_cursor(ARROW_RIGHT, 0);
 	}
 
 	while (editor.curx != curx) {
 		killring_append_char(editor.row[editor.cury].line[editor.curx]);
-		move_cursor(ARROW_RIGHT);
+		move_cursor(ARROW_RIGHT, 0);
 	}
 
 	editor_set_status("Region killed.");
@@ -925,7 +925,7 @@ delete_region(void)
 	jump_to_position(markx, marky);
 
 	while (killed < count) {
-		// move_cursor(ARROW_RIGHT);
+		move_cursor(ARROW_RIGHT, 0);
 		deletech(KILLRING_NO_OP);
 		killed++;
 	}
@@ -940,7 +940,7 @@ delete_region(void)
 
 
 void
-kwrite(const int fd, const char* buf, const int len)
+kwrite(const int fd, const char *buf, const int len)
 {
 	int wlen = 0;
 
@@ -954,7 +954,7 @@ kwrite(const int fd, const char* buf, const int len)
 
 
 void
-die(const char* s)
+die(const char *s)
 {
 	kwrite(STDOUT_FILENO, "\x1b[2J", 4);
 	kwrite(STDOUT_FILENO, "\x1b[H", 3);
@@ -973,7 +973,7 @@ die(const char* s)
  * Linux, at least.
  */
 int
-get_winsz(int* rows, int* cols)
+get_winsz(int *rows, int *cols)
 {
 	struct winsize ws;
 
@@ -1016,7 +1016,7 @@ void
 goto_line(void)
 {
 	int lineno = 0;
-	char* query = editor_prompt("Line: %s", NULL);
+	char *query = editor_prompt("Line: %s", NULL);
 
 	if (query == NULL) {
 		return;
@@ -1051,13 +1051,13 @@ void
 find_next_word(void)
 {
 	while (cursor_at_eol()) {
-		move_cursor(ARROW_RIGHT);
+		move_cursor(ARROW_RIGHT, 1);
 	}
 
 	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
 		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !
 			cursor_at_eol()) {
-			move_cursor(ARROW_RIGHT);
+			move_cursor(ARROW_RIGHT, 1);
 		}
 
 		return;
@@ -1065,7 +1065,7 @@ find_next_word(void)
 
 	if (isspace(editor.row[editor.cury].line[editor.curx])) {
 		while (isspace(editor.row[editor.cury].line[editor.curx])) {
-			move_cursor(ARROW_RIGHT);
+			move_cursor(ARROW_RIGHT, 1);
 		}
 
 		find_next_word();
@@ -1077,14 +1077,14 @@ void
 delete_next_word(void)
 {
 	while (cursor_at_eol()) {
-		move_cursor(ARROW_RIGHT);
+		move_cursor(ARROW_RIGHT, 1);
 		deletech(KILLRING_APPEND);
 	}
 
 	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
 		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !
 			cursor_at_eol()) {
-			move_cursor(ARROW_RIGHT);
+			move_cursor(ARROW_RIGHT, 1);
 			deletech(KILLRING_APPEND);
 		}
 
@@ -1093,7 +1093,7 @@ delete_next_word(void)
 
 	if (isspace(editor.row[editor.cury].line[editor.curx])) {
 		while (isspace(editor.row[editor.cury].line[editor.curx])) {
-			move_cursor(ARROW_RIGHT);
+			move_cursor(ARROW_RIGHT, 1);
 			deletech(KILLRING_APPEND);
 		}
 
@@ -1109,7 +1109,7 @@ find_prev_word(void)
 		return;
 	}
 
-	move_cursor(ARROW_LEFT);
+	move_cursor(ARROW_LEFT, 1);
 
 	while (cursor_at_eol() || isspace(
 		editor.row[editor.cury].line[editor.curx])) {
@@ -1117,12 +1117,12 @@ find_prev_word(void)
 			return;
 		}
 
-		move_cursor(ARROW_LEFT);
+		move_cursor(ARROW_LEFT, 1);
 	}
 
 	while (editor.curx > 0 && !isspace(
 		editor.row[editor.cury].line[editor.curx - 1])) {
-		move_cursor(ARROW_LEFT);
+		move_cursor(ARROW_LEFT, 1);
 	}
 }
 
@@ -1172,7 +1172,7 @@ delete_row(int at)
 	 * newline itself and we must NOT also push the entire row here.
 	 */
 	if (!editor.no_kill) {
-		struct erow* r = &editor.row[at];
+		struct erow *r = &editor.row[at];
 		/* Start or continue the kill sequence based on editor.killing */
 		if (r->size > 0) {
 			/* push raw bytes of the line */
@@ -1211,7 +1211,7 @@ delete_row(int at)
 
 
 void
-row_append_row(struct erow* row, char* s, int len)
+row_append_row(struct erow *row, char *s, int len)
 {
 	row->line = realloc(row->line, row->size + len + 1);
 	assert(row->line != NULL);
@@ -1224,7 +1224,7 @@ row_append_row(struct erow* row, char* s, int len)
 
 
 void
-row_insert_ch(struct erow* row, int at, int16_t c)
+row_insert_ch(struct erow *row, int at, int16_t c)
 {
 	/*
 	 * row_insert_ch just concerns itself with how to update a row.
@@ -1245,7 +1245,7 @@ row_insert_ch(struct erow* row, int at, int16_t c)
 
 
 void
-row_delete_ch(struct erow* row, int at)
+row_delete_ch(struct erow *row, int at)
 {
 	if (at < 0 || at >= row->size) {
 		return;
@@ -1270,8 +1270,9 @@ insertch(int16_t c)
 		erow_insert(editor.nrows, "", 0);
 	}
 
-	/* Any insertion breaks a delete sequence for killring chaining. */
+	/* Inserting ends kill ring chaining. */
 	editor.kill = 0;
+
 	/* Ensure we pass a non-negative byte value to avoid assert(c > 0). */
 	row_insert_ch(&editor.row[editor.cury],
 	              editor.curx,
@@ -1284,7 +1285,7 @@ insertch(int16_t c)
 void
 deletech(uint8_t op)
 {
-	struct erow* row = NULL;
+	struct erow *row = NULL;
 	unsigned char dch = 0;
 
 	if (editor.cury >= editor.nrows) {
@@ -1402,13 +1403,13 @@ open_file(const char *filename)
 /*
  * convert our rows to a buffer; caller must free it.
  */
-char*
-rows_to_buffer(int* buflen)
+char
+*rows_to_buffer(int *buflen)
 {
 	int len = 0;
 	int j;
-	char* buf = NULL;
-	char* p = NULL;
+	char *buf = NULL;
+	char *p = NULL;
 
 	for (j = 0; j < editor.nrows; j++) {
 		/* extra byte for newline */
@@ -1440,7 +1441,7 @@ save_file(void)
 	int fd = -1;
 	int len;
 	int status = 1; /* will be used as exit code */
-	char* buf;
+	char *buf;
 
 	if (!editor.dirty) {
 		editor_set_status("No changes to save.");
@@ -1601,11 +1602,11 @@ get_keypress(void)
 }
 
 
-char*
-editor_prompt(char* prompt, void (*cb)(char*, int16_t))
+char
+*editor_prompt(char *prompt, void (*cb)(char*, int16_t))
 {
 	size_t bufsz = 128;
-	char* buf = malloc(bufsz);
+	char *buf = malloc(bufsz);
 	size_t buflen = 0;
 	int16_t c;
 
@@ -1655,72 +1656,164 @@ editor_prompt(char* prompt, void (*cb)(char*, int16_t))
 }
 
 
+// void
+// editor_find_callback(char *query, int16_t c)
+// {
+// 	static int lmatch = -1;
+// 	static int dir = -1;
+// 	int i, current, traversed = 0;
+// 	int qlen = kstrnlen(query, 128);
+// 	char *match;
+// 	struct erow *row;
+//
+// 	if (c == '\r' || c == ESC_KEY || c == CTRL_KEY('g')) {
+// 		/* reset search */
+// 		lmatch = -1;
+// 		dir = 1;
+// 		return;
+// 	} else if (c == ARROW_RIGHT || c == ARROW_DOWN || c == CTRL_KEY('s')) {
+// 		dir = 1;
+// 	} else if (c == ARROW_LEFT || c == ARROW_UP) {
+// 		dir = -1;
+// 	} else {
+// 		lmatch = -1;
+// 		dir = 1;
+// 	}
+//
+// 	if (lmatch == -1) {
+// 		dir = 1;
+// 		current = editor.cury;
+// 	}
+// 	current = lmatch;
+//
+// 	for (i = 0; i < editor.nrows; i++) {
+// 		traversed++;
+// 		if (traversed >= editor.nrows) {
+// 			break;
+// 		}
+//
+// 		current += dir;
+// 		if (current < 0) {
+// 			current = editor.nrows - 1;
+// 		} else if (current >= editor.nrows) {
+// 			current = 0;
+// 		}
+//
+// 		row = &editor.row[current];
+// 		if (row == NULL || row->size < qlen) {
+// 			continue;
+// 		}
+//
+// 		match = strnstr(row->render, query, row->size);
+// 		if (match) {
+// 			lmatch = current;
+// 			editor.cury = current;
+// 			editor.curx = erow_render_to_cursor(row,
+// 			                                    match - row->render);
+// 			if (editor.curx > row->size) {
+// 				editor.curx = row->size;
+// 			}
+// 			/*
+// 			 * after this, scroll will put the match line at
+// 			 * the top of the screen.
+// 			 */
+// 			editor.rowoffs = editor.nrows;
+// 			break;
+// 		}
+// 	}
+//
+// 	display_refresh();
+// }
+
+
 void
 editor_find_callback(char* query, int16_t c)
 {
-	static int lmatch = -1;
-	static int dir = -1;
-	int i, current, traversed = 0;
-	int qlen = kstrnlen(query, 128);
-	char* match;
-	struct erow* row;
+	static int	 last_match = -1;       /* row index of last match */
+	static int	 direction = 1;         /* 1 = forward, -1 = backward */
+	static char	 last_query[128] = {0}; /* remember last successful query */
+	struct erow	*row;
+	int		 saved_cx = editor.curx;
+	int		 saved_cy = editor.cury;
+	size_t		 qlen = strlen(query);
+	char		*match;
+	int		 i;
 
 	if (c == '\r' || c == ESC_KEY || c == CTRL_KEY('g')) {
-		/* reset search */
-		lmatch = -1;
-		dir = 1;
+		last_match = -1;
+		direction = 1;
+		last_query[0] = '\0';
 		return;
-	} else if (c == ARROW_RIGHT || c == ARROW_DOWN || c == CTRL_KEY('s')) {
-		dir = 1;
-	} else if (c == ARROW_LEFT || c == ARROW_UP) {
-		dir = -1;
-	} else {
-		lmatch = -1;
-		dir = 1;
 	}
 
-	if (lmatch == -1) {
-		dir = 1;
-		current = editor.cury;
+	if (c == CTRL_KEY('s') || c == ARROW_DOWN || c == ARROW_RIGHT) {
+		direction = 1;
+	} else if (c == CTRL_KEY('r') || c == ARROW_UP || c == ARROW_LEFT) {
+		direction = -1;
 	}
-	current = lmatch;
+
+	if (qlen > 0 && (qlen != strlen(last_query) || strcmp(query, last_query) != 0)) {
+		last_match = -1;
+		strcpy(last_query, query);
+	}
+
+	int start_row = editor.cury;
+	int start_col = editor.curx;
+
+	if (last_match == -1) {
+		if (direction == 1) {
+			start_col += 1;
+		}
+		last_match = editor.cury;
+	}
+
+	int current = last_match;
+	int wrapped = 0;
 
 	for (i = 0; i < editor.nrows; i++) {
-		traversed++;
-		if (traversed >= editor.nrows) {
-			break;
-		}
+		current += direction;
 
-		current += dir;
+		if (current >= editor.nrows) {
+			current = 0;
+			if (wrapped++) break;
+		}
 		if (current < 0) {
 			current = editor.nrows - 1;
-		} else if (current >= editor.nrows) {
-			current = 0;
+			if (wrapped++) break;
 		}
 
 		row = &editor.row[current];
-		if (row == NULL || row->size < qlen) {
-			continue;
+
+		/* Skip rendering search on raw bytes — use line[] but respect render offsets */
+		erow_update(row);
+
+		char* search_start = row->render;
+		if (current == start_row && direction == 1 && last_match == -1) {
+			/* On first search forward: skip text before cursor */
+			int skip = erow_render_to_cursor(row, start_col);
+			search_start += skip;
 		}
 
-		match = strnstr(row->render, query, row->size);
+		match = strnstr(search_start, query, row->rsize - (search_start - row->render));
 		if (match) {
-			lmatch = current;
+			last_match = current;
 			editor.cury = current;
-			editor.curx = erow_render_to_cursor(row,
-			                                    match - row->render);
-			if (editor.curx > row->size) {
-				editor.curx = row->size;
+			editor.curx = erow_cursor_to_render(row, match - row->render);
+			if (current == start_row && direction == 1 && last_match == -1) {
+				editor.curx += start_col;  /* adjust if we skipped prefix */
 			}
-			/*
-			 * after this, scroll will put the match line at
-			 * the top of the screen.
-			 */
-			editor.rowoffs = editor.nrows;
-			break;
+			scroll();
+			display_refresh();
+			return;
 		}
 	}
 
+	/* No match found */
+	if (qlen > 0) {
+		editor_set_status("Failing search: %s", query);
+	}
+	editor.curx = saved_cx;
+	editor.cury = saved_cy;
 	display_refresh();
 }
 
@@ -1729,7 +1822,7 @@ void
 editor_find(void)
 {
 	/* TODO(kyle): consider making this an abuf */
-	char* query;
+	char *query;
 	int scx = editor.curx;
 	int scy = editor.cury;
 	int sco = editor.coloffs;
@@ -1754,7 +1847,7 @@ editor_find(void)
 void
 editor_openfile(void)
 {
-	char* filename;
+	char *filename;
 
 	/* TODO(kyle): combine with dirutils for tab-completion */
 	filename = editor_prompt("Load file: %s", NULL);
@@ -1767,33 +1860,37 @@ editor_openfile(void)
 
 
 int
-first_nonwhitespace(struct erow* row)
+first_nonwhitespace(struct erow *row)
 {
-	int pos;
-	wchar_t wc;
-	mbstate_t state;
-	size_t len;
+	int		 pos;
+	wchar_t		 wc;
+	mbstate_t	 state;
+	size_t		 len;
 
 	if (row == NULL) {
 		return 0;
 	}
 
 	memset(&state, 0, sizeof(state));
-	pos = 0;
+	pos = editor.curx;
+	if (pos > row->size) {
+		pos = row->size;
+	}
+
 	while (pos < row->size) {
 		len = mbrtowc(&wc, &row->line[pos], row->size - pos, &state);
 		if (len == (size_t)-1 || len == (size_t)-2) {
-			/* Invalid or incomplete sequence, stop here */
 			break;
 		}
+
 		if (len == 0) {
-			/* Null character, stop here */
 			break;
 		}
+
 		if (!iswspace(wc)) {
-			/* Found non-whitespace character */
 			break;
 		}
+
 		pos += len;
 	}
 
@@ -1802,9 +1899,9 @@ first_nonwhitespace(struct erow* row)
 
 
 void
-move_cursor(int16_t c)
+move_cursor(int16_t c, int interactive)
 {
-	struct erow* row;
+	struct erow *row;
 	int reps;
 
 	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
@@ -1817,7 +1914,9 @@ move_cursor(int16_t c)
 			row = (editor.cury >= editor.nrows)
 				      ? NULL
 				      : &editor.row[editor.cury];
-			editor.curx = first_nonwhitespace(row);
+			if (interactive) {
+				editor.curx = first_nonwhitespace(row);
+			}
 		}
 		break;
 	case ARROW_DOWN:
@@ -1827,12 +1926,19 @@ move_cursor(int16_t c)
 			row = (editor.cury >= editor.nrows)
 				      ? NULL
 				      : &editor.row[editor.cury];
-			editor.curx = first_nonwhitespace(row);
+
+			if (interactive) {
+				editor.curx = first_nonwhitespace(row);
+			}
 		}
 		break;
 	case ARROW_RIGHT:
 	case CTRL_KEY('f'):
-		if (row && editor.curx < row->size) {
+		if (!row) {
+			break;
+		}
+
+		if (editor.curx < row->size) {
 			editor.curx++;
 			/* skip over UTF-8 continuation bytes */
 			while (editor.curx < row->size &&
@@ -1840,19 +1946,15 @@ move_cursor(int16_t c)
 					0xC0) == 0x80) {
 				editor.curx++;
 			}
-		} else if (row && editor.curx == row->size && editor.cury < editor.nrows - 1) {
+		} else if (editor.curx == row->size && editor.cury < editor.nrows - 1) {
 			editor.cury++;
-			row = (editor.cury >= editor.nrows)
-				      ? NULL
-				      : &editor.row[editor.cury];
-			editor.curx = first_nonwhitespace(row);
+			editor.curx = 0;
 		}
 		break;
 	case ARROW_LEFT:
 	case CTRL_KEY('b'):
 		if (editor.curx > 0) {
 			editor.curx--;
-			/* move to the start byte if we landed on a continuation */
 			while (editor.curx > 0 &&
 				((unsigned char)row->line[editor.curx] &
 					0xC0) == 0x80) {
@@ -1861,7 +1963,7 @@ move_cursor(int16_t c)
 		} else if (editor.cury > 0) {
 			editor.cury--;
 			editor.curx = editor.row[editor.cury].size;
-			/* ensure at a codepoint boundary at end of previous line */
+
 			row = &editor.row[editor.cury];
 			while (editor.curx > 0 &&
 				((unsigned char)row->line[editor.curx] &
@@ -1883,7 +1985,7 @@ move_cursor(int16_t c)
 
 		reps = editor.rows;
 		while (--reps) {
-			move_cursor(c == PG_UP ? ARROW_UP : ARROW_DOWN);
+			move_cursor(c == PG_UP ? ARROW_UP : ARROW_DOWN, 1);
 		}
 
 		break;
@@ -1915,7 +2017,7 @@ move_cursor(int16_t c)
 void
 newline(void)
 {
-	struct erow* row = NULL;
+	struct erow *row = NULL;
 
 	if (editor.cury >= editor.nrows) {
 		/* At or past end of file, insert empty line */
@@ -1940,12 +2042,12 @@ newline(void)
 }
 
 
-char*
-get_cloc_code_lines(const char* filename)
+char
+*get_cloc_code_lines(const char *filename)
 {
 	char command[512];
 	char buffer[256];
-	char* result = NULL;
+	char *result = NULL;
 	FILE* pipe = NULL;
 	size_t len = 0;
 
@@ -1995,7 +2097,7 @@ get_cloc_code_lines(const char* filename)
 	}
 
 	pclose(pipe);
-	char* zero = malloc(2);
+	char *zero = malloc(2);
 	if (zero) {
 		strcpy(zero, "0");
 		return zero;
@@ -2197,7 +2299,7 @@ process_normal(int16_t c)
 	if (is_arrow_key(c)) {
 		/* moving the cursor breaks a delete sequence */
 		editor.kill = 0;
-		move_cursor(c);
+		move_cursor(c, 1);
 		return;
 	}
 
@@ -2213,7 +2315,7 @@ process_normal(int16_t c)
 	case CTRL_KEY('d'):
 	case DEL_KEY:
 		if (c == DEL_KEY || c == CTRL_KEY('d')) {
-			move_cursor(ARROW_RIGHT);
+			move_cursor(ARROW_RIGHT, 1);
 			deletech(KILLRING_APPEND);
 		} else {
 			deletech(KILLRING_PREPEND);
@@ -2372,7 +2474,7 @@ enable_termraw(void)
 
 
 void
-display_clear(struct abuf* ab)
+display_clear(struct abuf *ab)
 {
 	if (ab == NULL) {
 		kwrite(STDOUT_FILENO, ESCSEQ "2J", 4);
@@ -2401,13 +2503,13 @@ setup_terminal(void)
 	if (tcgetattr(STDIN_FILENO, &editor.entry_term) == -1) {
 		die("can't snapshot terminal settings");
 	}
-	atexit(disable_termraw);
+
 	enable_termraw();
 }
 
 
 void
-draw_rows(struct abuf* ab)
+draw_rows(struct abuf *ab)
 {
 	assert(editor.cols >= 0);
 
@@ -2475,7 +2577,7 @@ status_mode_char(void)
 
 
 void
-draw_status_bar(struct abuf* ab)
+draw_status_bar(struct abuf *ab)
 {
 	char status[editor.cols];
 	char rstatus[editor.cols];
@@ -2525,7 +2627,7 @@ draw_status_bar(struct abuf* ab)
 
 
 void
-draw_message_line(struct abuf* ab)
+draw_message_line(struct abuf *ab)
 {
 	int len = strlen(editor.msg);
 
@@ -2598,7 +2700,7 @@ display_refresh(void)
 
 
 void
-editor_set_status(const char* fmt, ...)
+editor_set_status(const char *fmt, ...)
 {
 	va_list ap;
 
@@ -2633,7 +2735,7 @@ loop(void)
 
 
 void
-enable_debugging(const char* logfile)
+enable_debugging(const char *logfile)
 {
 	time_t now;
 
@@ -2719,9 +2821,9 @@ install_signal_handlers(void)
 
 
 int
-main(int argc, char* argv[])
+main(int argc, char *argv[])
 {
-	char* logfile = "debug-ke.log";
+	char *logfile = "debug-ke.log";
 	int opt;
 	int debug = 0;
 
