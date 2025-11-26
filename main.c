@@ -1566,11 +1566,12 @@ editor_prompt(char *prompt, void (*cb)(char *, int16_t))
 void
 editor_find_callback(char *query, int16_t c)
 {
-	static int lmatch = -1;
-	static int dir = 1;
-	int i, current;
-	char *match;
-	struct erow *row;
+	static int	 lmatch		= -1;
+	static int	 dir		= -1;
+	int		 i, current, traversed = 0;
+	int		 qlen = strnlen(query, 128);
+	char		*match;
+	struct erow	*row;
 
 	if (c == '\r' || c == ESC_KEY || c == CTRL_KEY('g')) {
 		/* reset search */
@@ -1592,6 +1593,11 @@ editor_find_callback(char *query, int16_t c)
 	current = lmatch;
 
 	for (i = 0; i < editor.nrows; i++) {
+		traversed++;
+		if (traversed >= editor.nrows) {
+			break;
+		}
+
 		current += dir;
 		if (current == -1) {
 			current = editor.nrows - 1;
@@ -1600,7 +1606,11 @@ editor_find_callback(char *query, int16_t c)
 		}
 
 		row = &editor.row[current];
-		match = strstr(row->render, query);
+		if (row == NULL || row->size < qlen) {
+			continue;
+		}
+
+		match = strnstr(row->render, query, row->size);
 		if (match) {
 			lmatch = current;
 			editor.cury = current;
@@ -1903,100 +1913,107 @@ void
 process_kcommand(int16_t c)
 {
 	char	*buf = NULL;
+	int	 len = 0;
 
 	switch (c) {
-		case ' ':
-			toggle_markset();
-			break;
-		case 'q':
-		case CTRL_KEY('q'):
-			if (editor.dirty && editor.dirtyex) {
-				editor_set_status(
-					"File not saved - C-k q again to quit.");
-				editor.dirtyex = 0;
-				return;
-			}
-			exit(0);
-		case CTRL_KEY('s'):
-		case 's':
-			save_file();
-			break;
-		case CTRL_KEY('x'):
-		case 'x':
-			exit(save_file());
-		case DEL_KEY:
-		case CTRL_KEY('d'):
+	case BACKSPACE:
+		while (editor.curx > 0) {
+			process_normal(BACKSPACE);
+		}
+		break;
+	case CTRL_KEY('\\'):
+		/* sometimes it's nice to dump core */
+		disable_termraw();
+		abort();
+	case ' ':
+		toggle_markset();
+		break;
+	case 'c':
+		len = editor.killring->size;
+		killring_flush();
+		editor_set_status("Kill ring cleared (%d characters)", len);
+		break;
+	case 'd':
+		if (editor.curx == 0 && cursor_at_eol()) {
 			delete_row(editor.cury);
-			break;
-		case 'd':
-			if (editor.curx == 0 && cursor_at_eol()) {
-				delete_row(editor.cury);
-				return;
-			}
-
-			while ((editor.row[editor.cury].size - editor.curx) >
-			       0) {
-				process_normal(DEL_KEY);
-			}
-
-			break;
-		case 'g':
-			goto_line();
-			break;
-		case BACKSPACE:
-			while (editor.curx > 0) {
-				process_normal(BACKSPACE);
-			}
-			break;
-		case CTRL_KEY('\\'):
-			/* sometimes it's nice to dump core */
-			disable_termraw();
-			abort();
-		case 'e':
-		case CTRL_KEY('e'):
-			if (editor.dirty && editor.dirtyex) {
-				editor_set_status(
-					"File not saved - C-k e again to open a new file anyways.");
-				editor.dirtyex = 0;
-				return;
-			}
-			editor_openfile();
-			break;
-		case 'f':
-			editor_find();
-			break;
-		case 'l':
-			buf = get_cloc_code_lines(editor.filename);
-
-			editor_set_status("Lines of code: %s", buf);
-			free(buf);
-			break;
-		case 'm':
-			if (system("make") != 0) {
-				editor_set_status(
-					"process failed: %s",
-					strerror(errno));
-			} else {
-				editor_set_status("make: ok");
-			}
-			break;
-		case 'u':
-			editor_set_status("undo: todo");
-			break;
-		case 'y':
-			killring_yank();
-			break;
-		case ESC_KEY:
-		case CTRL_KEY('g'):
-			break;
-		default:
-			if (isprint(c)) {
-				editor_set_status("unknown kcommand '%c'", c);
-				break;
-			}
-
-			editor_set_status("unknown kcommand: %04x", c);
 			return;
+		}
+
+		while ((editor.row[editor.cury].size - editor.curx) >
+			0) {
+			process_normal(DEL_KEY);
+		}
+
+		break;
+	case DEL_KEY:
+	case CTRL_KEY('d'):
+		delete_row(editor.cury);
+		break;
+	case 'e':
+	case CTRL_KEY('e'):
+		if (editor.dirty && editor.dirtyex) {
+			editor_set_status(
+				"File not saved - C-k e again to open a new file anyways.");
+			editor.dirtyex = 0;
+			return;
+		}
+		editor_openfile();
+		break;
+	case 'f':
+		editor_find();
+		break;
+	case 'g':
+		goto_line();
+		break;
+	case 'l':
+		buf = get_cloc_code_lines(editor.filename);
+
+		editor_set_status("Lines of code: %s", buf);
+		free(buf);
+		break;
+	case 'm':
+		if (system("make") != 0) {
+			editor_set_status(
+				"process failed: %s",
+				strerror(errno));
+		}
+		else {
+			editor_set_status("make: ok");
+		}
+		break;
+	case 'q':
+	case CTRL_KEY('q'):
+		if (editor.dirty && editor.dirtyex) {
+			editor_set_status(
+				"File not saved - C-k q again to quit.");
+			editor.dirtyex = 0;
+			return;
+		}
+		exit(0);
+	case CTRL_KEY('s'):
+	case 's':
+		save_file();
+		break;
+	case CTRL_KEY('x'):
+	case 'x':
+		exit(save_file());
+	case 'u':
+		editor_set_status("undo: todo");
+		break;
+	case 'y':
+		killring_yank();
+		break;
+	case ESC_KEY:
+	case CTRL_KEY('g'):
+		break;
+	default:
+		if (isprint(c)) {
+			editor_set_status("unknown kcommand '%c'", c);
+			break;
+		}
+
+		editor_set_status("unknown kcommand: %04x", c);
+		return;
 	}
 
 	editor.dirtyex = 1;

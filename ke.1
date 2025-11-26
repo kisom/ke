@@ -26,6 +26,8 @@ k-command mode can be exited with ESC or C-g.
 .Bl -tag -width xxxxxxxxxxxx -offset indent
 .It C-k BACKSPACE
 Delete from the cursor to the beginning of the line.
+.It C-k c
+Clear (flush) the kill ring.
 .It C-k SPACE
 Toggle the mark.
 .It C-k d
@@ -49,7 +51,7 @@ save the file, prompting for a filename if needed. Also C-k C-s.
 .It C-k x
 save the file and exit. Also C-k C-x.
 .It C-k y
-Yank the killring.
+Yank the kill ring.
 .It C-k \[char92]
 Dump core.
 .El
@@ -64,7 +66,7 @@ Incremental find.
 .It C-w
 Kill the region if the mark is set.
 .It C-y
-Yank the killring.
+Yank the kill ring.
 .It ESC BACKSPACE
 Delete the previous word.
 .It ESC b
@@ -74,7 +76,7 @@ Delete the next word.
 .It ESC f
 Move to the next word.
 .It ESC w
-Save the region (if the mark is set) to the killring.
+Save the region (if the mark is set) to the kill ring.
 .It
 .El
 .Sh FIND
