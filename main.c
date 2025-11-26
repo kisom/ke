@@ -149,6 +149,7 @@ struct editor_t {
 	char		 msg[80];
 	int		 mark_set;
 	int		 mark_curx, mark_cury;
+	int		 uarg, ucount; /* C-u support */
 	time_t		 msgtm;
 	undo_tree_t	*undo;
 } editor = {
@@ -170,6 +171,9 @@ struct editor_t {
 	.mark_set = 0,
 	.mark_curx = 0,
 	.mark_cury = 0,
+	.uarg = 0,
+	.ucount = 0,
+	.undo = NULL,
 };
 
 
@@ -293,12 +297,19 @@ void		 editor_find_callback(char *query, int16_t c);
 void		 editor_find(void);
 char		*editor_prompt(char*, void (*cb)(char*, int16_t));
 void		 editor_openfile(void);
+void		 move_cursor_once(int16_t c, int interactive);
 void		 move_cursor(int16_t c, int interactive);
+void		 uarg_start(void);
+void		 uarg_digit(int d);
+void		 uarg_clear(void);
+int		 uarg_get(void);
 void		 newline(void);
 void		 process_kcommand(int16_t c);
 void		 process_normal(int16_t c);
 void		 process_escape(int16_t c);
 int		 process_keypress(void);
+char		*get_cloc_code_lines(const char *filename);
+int		 dump_pidfile(void);
 void		 enable_termraw(void);
 void		 display_clear(struct abuf *ab);
 void		 disable_termraw(void);
@@ -2365,7 +2376,7 @@ first_nonwhitespace(struct erow *row)
 
 
 void
-move_cursor(int16_t c, int interactive)
+move_cursor_once(int16_t c, int interactive)
 {
 	struct erow *row;
 	int reps;
@@ -2481,6 +2492,17 @@ move_cursor(int16_t c, int interactive)
 
 
 void
+move_cursor(int16_t c, int interactive)
+{
+	int	 n = uarg_get();
+
+	while (n-- > 0) {
+		move_cursor_once(c, interactive);
+	}
+}
+
+
+void
 newline(void)
 {
 	struct erow *row = NULL;
@@ -2503,99 +2525,68 @@ newline(void)
 
 	editor.cury++;
 	editor.curx = 0;
-	/* Any insertion breaks a delete sequence for killring chaining. */
+	/* BREAK THE KILL CHAIN \m/ */
 	editor.kill = 0;
 }
 
 
-char
-*get_cloc_code_lines(const char *filename)
+void
+uarg_start(void)
 {
-	char command[512];
-	char buffer[256];
-	char *result = NULL;
-	FILE* pipe = NULL;
-	size_t len = 0;
-
-	if (editor.filename == NULL) {
-		snprintf(command, sizeof(command),
-		         "buffer has no associated file.");
-		result = malloc((kstrnlen(command, sizeof(command))) + 1);
-		assert(result != NULL);
-		strcpy(result, command);
-		return result;
-	}
-
-	if (editor.dirty) {
-		snprintf(command, sizeof(command),
-		         "buffer must be saved first.");
-		result = malloc((kstrnlen(command, sizeof(command))) + 1);
-		assert(result != NULL);
-		strcpy(result, command);
-		return result;
-	}
-
-	snprintf(command,
-	         sizeof(command),
-	         "cloc --quiet %s | tail -2 | head -1 | awk '{print $5}'",
-	         filename);
-
-	pipe = popen(command, "r");
-	if (!pipe) {
-		snprintf(command, sizeof(command), "Error getting LOC: %s", strerror(errno));
-		result = (char*)malloc(sizeof(buffer) + 1);
-		return NULL;
-	}
-
-	if (fgets(buffer, sizeof(buffer), pipe) != NULL) {
-		len = strlen(buffer);
-		if (len > 0 && buffer[len - 1] == '\n') {
-			buffer[len - 1] = '\0';
+	if (editor.uarg == 0) {
+		editor.ucount = 0;
+	}else {
+		if (editor.ucount == 0) {
+			editor.ucount = 1;
 		}
-
-		result = malloc(strlen(buffer) + 1);
-		assert(result != NULL);
-		if (result) {
-			strcpy(result, buffer);
-			pclose(pipe);
-			return result;
-		}
+		editor.ucount *= 4;
 	}
 
-	pclose(pipe);
-	char *zero = malloc(2);
-	if (zero) {
-		strcpy(zero, "0");
-		return zero;
-	}
-	return NULL;
+	editor.uarg = 1;
+	editor_set_status("C-u %d", editor.ucount);
 }
 
 
-static int
-dump_pidfile(void)
+void
+uarg_digit(int d)
 {
-	FILE* pid_file = NULL;
-
-	if ((pid_file = fopen("ke.pid", "w")) == NULL) {
-		editor_set_status("Failed to dump PID file: %s", strerror(errno));
-		return 0;
+	if (editor.uarg == 0) {
+		editor.uarg   = 1;
+		editor.ucount = 0;
 	}
 
-	fprintf(pid_file, "%ld", (long)getpid());
-	fclose(pid_file);
+	editor.ucount = editor.ucount * 10 + d;
+	editor_set_status("C-u %d", editor.ucount);
+}
 
-	return 1;
+
+void
+uarg_clear(void)
+{
+	editor.uarg   = 0;
+	editor.ucount = 0;
+}
+
+
+int
+uarg_get(void)
+{
+	int		n = editor.ucount > 0 ? editor.ucount : 1;
+
+	uarg_clear();
+
+	return n;
 }
 
 
 void
 process_kcommand(int16_t c)
 {
-	char	*buf = NULL;
-	int	 len = 0;
+	char	*buf   = NULL;
+	int	 len   = 0;
 	int	 jumpx = 0;
 	int	 jumpy = 0;
+	int	 reps  = 0;
 
 	switch (c) {
 	case BACKSPACE:
@@ -2654,15 +2645,25 @@ process_kcommand(int16_t c)
 			return;
 		}
 
-		while ((editor.row[editor.cury].size - editor.curx) >
-			0) {
-			process_normal(DEL_KEY);
+		reps = uarg_get();
+		while (reps--) {
+			while ((editor.row[editor.cury].size -
+				editor.curx) > 0) {
+				process_normal(DEL_KEY);
+			}
+			if (reps) {
+				newline();
+			}
 		}
 
 		break;
 	case DEL_KEY:
 	case CTRL_KEY('d'):
-		delete_row(editor.cury);
+		reps = uarg_get();
+
+		while (reps--) {
+			delete_row(editor.cury);
+		}
 		break;
 	case 'e':
 	case CTRL_KEY('e'):
@@ -2750,7 +2751,11 @@ process_kcommand(int16_t c)
 		editor_redo();
 		break;
 	case 'y':
-		killring_yank();
+		reps = uarg_get();
+
+		while (reps--) {
+			killring_yank();
+		}
 		break;
 	case ESC_KEY:
 	case CTRL_KEY('g'):
@@ -2772,6 +2777,20 @@ process_kcommand(int16_t c)
 void
 process_normal(int16_t c)
 {
+	int	reps = 0;
+
+	/* C-u handling – must be the very first thing */
+	if (c == CTRL_KEY('u')) {
+		uarg_start();
+		return;
+	}
+
+	/* digits after a C-u are part of the argument */
+	if (editor.uarg && c >= '0' && c <= '9') {
+		uarg_digit(c - '0');
+		return;
+	}
+
 	if (is_arrow_key(c)) {
 		/* moving the cursor breaks a delete sequence */
 		editor.kill = 0;
@@ -2791,11 +2810,25 @@ process_normal(int16_t c)
 	case CTRL_KEY('d'):
 	case DEL_KEY:
 		if (c == DEL_KEY || c == CTRL_KEY('d')) {
-			move_cursor(ARROW_RIGHT, 1);
-			deletech(KILLRING_APPEND);
+			reps = uarg_get();
+			while (reps-- > 0) {
+				move_cursor(ARROW_RIGHT, 1);
+				deletech(KILLRING_APPEND);
+			}
 		} else {
-			deletech(KILLRING_PREPEND);
+			reps = uarg_get();
+			while (reps-- > 0) {
+				deletech(KILLRING_PREPEND);
+			}
 		}
+		break;
+	case CTRL_KEY('a'):	/* beginning of line */
+	case HOME_KEY:
+		move_cursor(CTRL_KEY('a'), 1);
+		break;
+	case CTRL_KEY('e'):	/* end of line */
+	case END_KEY:
+		move_cursor(CTRL_KEY('e'), 1);
 		break;
 	case CTRL_KEY('g'):
 		break;
@@ -2811,16 +2844,29 @@ process_normal(int16_t c)
 		toggle_markset();
 		break;
 	case CTRL_KEY('y'):
-		killring_yank();
+		reps = uarg_get();
+
+		while (reps-- > 0) {
+			killring_yank();
+		}
 		break;
+		
 	case ESC_KEY:
 		editor.mode = MODE_ESCAPE;
 		break;
 	default:
 		if (c == TAB_KEY) {
-			insertch(c);
+			reps = uarg_get();
+
+			while (reps-- > 0) {
+				insertch(c);
+			}
 		} else if (c >= 0x20 && c != 0x7f) {
-			insertch(c);
+			reps = uarg_get();
+
+			while (reps-- > 0) {
+				insertch(c);
+			}
 		}
 		break;
 	}
@@ -2903,6 +2949,87 @@ process_keypress(void)
 		                  editor.mode);
 		editor.mode = MODE_NORMAL;
 	}
+
+	return 1;
+}
+
+
+char
+*get_cloc_code_lines(const char *filename)
+{
+	char command[512];
+	char buffer[256];
+	char *result = NULL;
+	FILE* pipe = NULL;
+	size_t len = 0;
+
+	if (editor.filename == NULL) {
+		snprintf(command, sizeof(command),
+			 "buffer has no associated file.");
+		result = malloc((kstrnlen(command, sizeof(command))) + 1);
+		assert(result != NULL);
+		strcpy(result, command);
+		return result;
+	}
+
+	if (editor.dirty) {
+		snprintf(command, sizeof(command),
+			 "buffer must be saved first.");
+		result = malloc((kstrnlen(command, sizeof(command))) + 1);
+		assert(result != NULL);
+		strcpy(result, command);
+		return result;
+	}
+
+	snprintf(command,
+		 sizeof(command),
+		 "cloc --quiet %s | tail -2 | head -1 | awk '{print $5}'",
+		 filename);
+
+	pipe = popen(command, "r");
+	if (!pipe) {
+		snprintf(command, sizeof(command), "Error getting LOC: %s", strerror(errno));
+		result = (char*)malloc(sizeof(buffer) + 1);
+		return NULL;
+	}
+
+	if (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+		len = strlen(buffer);
+		if (len > 0 && buffer[len - 1] == '\n') {
+			buffer[len - 1] = '\0';
+		}
+
+		result = malloc(strlen(buffer) + 1);
+		assert(result != NULL);
+		if (result) {
+			strcpy(result, buffer);
+			pclose(pipe);
+			return result;
+		}
+	}
+
+	pclose(pipe);
+	char *zero = malloc(2);
+	if (zero) {
+		strcpy(zero, "0");
+		return zero;
+	}
+	return NULL;
+}
+
+
+int
+dump_pidfile(void)
+{
+	FILE* pid_file = NULL;
+
+	if ((pid_file = fopen("ke.pid", "w")) == NULL) {
+		editor_set_status("Failed to dump PID file: %s", strerror(errno));
+		return 0;
+	}
+
+	fprintf(pid_file, "%ld", (long)getpid());
+	fclose(pid_file);
 
 	return 1;
 }

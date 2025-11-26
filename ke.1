@@ -60,7 +60,9 @@ Reload the current buffer from disk.
 .It C-k s
 Save the file, prompting for a filename if needed. Also C-k C-s.
 .It C-k u
-Undo changes. Not implemented yet, placeholder.
+Undo changes.
+.It C-k U
+Redo changes.
 .It C-k x
 save the file and exit. Also C-k C-x.
 .It C-k y
@@ -76,6 +78,9 @@ In general, C-g cancels an operation.
 Refresh the display.
 .It C-s
 Incremental find.
+.It C-u
+Universal argument. C-u followed by numbers will repeat an
+operation n times.
 .It C-w
 Kill the region if the mark is set.
 .It C-y

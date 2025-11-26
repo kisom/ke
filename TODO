@@ -13,6 +13,6 @@
 [x] mark/region
 
 What would it take for ke to be your daily drives?
-[ ] C-u (repeat actions)
+[x] C-u (repeat actions)
 [x] Alt nav (backspace, delete, f, b, etc)
-[ ] undo tree (C-k u) 
+[-] undo tree (C-k u/U)
