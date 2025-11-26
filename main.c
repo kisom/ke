@@ -98,35 +98,6 @@ struct erow {
 };
 
 
-typedef enum undo_flag {
-	UNDO_INSERT       = 1 << 0, /* insertch */
-	UNDO_DELETE       = 1 << 1, /* deletech */
-	UNDO_PASTE        = 1 << 2, /* yank */
-	UNDO_NEWLINE      = 1 << 3, /* newline duh */
-	UNDO_DELETE_ROW   = 1 << 4, /* delete_row duh */
-	UNDO_INDENT       = 1 << 5,
-	UNDO_UNINDENT     = 1 << 6,
-	UNDO_KILL_REGION  = 1 << 7
-} undo_flag_t;
-
-
-typedef struct undo_node {
-	undo_flag_t		 type;
-	int			 row, col;
-	struct abuf		 text;
-	struct undo_node	*next;
-	struct undo_node	*child;
-} undo_node_t;
-
-
-typedef struct undo_tree {
-	undo_node_t	*root;
-	undo_node_t	*current;
-	undo_node_t	*saved;
-	undo_node_t	*pending;
-} undo_tree_t;
-
-
 /*
  * editor is the global editor state; it should be broken out
  * to buffers and screen state, probably.
@@ -151,7 +122,6 @@ struct editor_t {
 	int		 mark_curx, mark_cury;
 	int		 uarg, ucount; /* C-u support */
 	time_t		 msgtm;
-	undo_tree_t	*undo;
 } editor = {
 	.cols = 0,
 	.rows = 0,
@@ -173,7 +143,6 @@ struct editor_t {
 	.mark_cury = 0,
 	.uarg = 0,
 	.ucount = 0,
-	.undo = NULL,
 };
 
 
@@ -201,69 +170,6 @@ void		 erow_update(struct erow *row);
 void		 erow_insert(int at, char *s, int len);
 void		 erow_free(struct erow *row);
 
-/*
- * undo ops
- *
- * notes:
- * + undo_node_free destroys an entire timeline, including children and next.
- * + undo_node_free_branch only discards next.
- * + undo_discard_redo_branches kills child and next.
- *
- * Basic invariants of the undo system:
- *   + root->parent == NULL
- *   + root->current is reachable from root via repeated child walk
- *   + saved is NULL or reachable the same way
- *   + pending is either NULL or a brand-new node not yet linked
- *   + when we commit, pending becomes current->child and current moves forward
- *   + when we undo, current = current->parent
- *   + when we type after undo, we free current->child (redo branch) first
- *
- * Or, visually,
- *
- *   root ──> N1 ──> N2 ──> N3 ──> N4* ──> N5 ──> N6   (main timeline)
- *            ^               ^               ^
- *            |               |               |
- *         saved           pending        current
- *
- *   + root    : first edit ever, never has a parent
- *   + current : where we are right now in history
- *   + saved   : points to the node that matches the on-disk file
- *   + pending : temporary node being built (committed → becomes current->child)
- *
- * If I do a double undo then type something:
- *
- *   root ──> N1 ──> N2 ──> N3* ──> N4 ──> N5   (old N4→N5→N6 discarded)
- *                   ^           ^
- *                   |           |
- *                current     pending (new edit)
- *                   |
- *                 saved
- *
- * All four pointers point into the same tree → and should only be memory
- * managed via the root node.
- */
-undo_node_t	*undo_node_new(undo_flag_t type);
-void             undo_node_free(undo_node_t *node);
-void             undo_node_free_branch(undo_node_t *node);
-undo_tree_t	*undo_tree_new(void);
-void             undo_tree_free(undo_tree_t *ut);
-int		 undo_continue_pending(undo_flag_t type);
-void		 undo_begin(undo_flag_t type);
-void		 undo_append_char(char c);
-void		 undo_append(const char *data, size_t len);
-void		 undo_prepend_char(char c);
-void		 undo_prepend(const char *data, size_t len);
-void		 undo_commit(void);
-void		 undo_discard_redo_branches(struct undo_node *from);
-undo_node_t	*undo_parent_of(undo_node_t *node);
-void		 undo_apply(const undo_node_t *node, int direction);
-// void		 editor_undo(void);
-// void		 editor_redo(void);
-// void		 undo_mark_saved(void);
-// int		 undo_depth(const undo_tree_t *t);
-// int		 undo_can_undo(const undo_tree_t *t);
-// int		 undo_can_redo(const undo_tree_t *t);
-// void		 undo_tree_debug_dump(const undo_tree_t *t);
 
 /* kill ring, marking, etc... */
 void		 killring_flush(void);
@@ -459,13 +365,6 @@ init_editor(void)
 	editor.dirty = 0;
 	editor.mark_set = 0;
 	editor.mark_cury = editor.mark_curx = 0;
-
-	if (editor.undo != NULL) {
-		undo_tree_free(editor.undo);
-		editor.undo = NULL;
-	}
-
-	editor.undo = undo_tree_new();
 }
 
 
