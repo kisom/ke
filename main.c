@@ -2473,20 +2473,13 @@ move_cursor_once(int16_t c, int interactive)
 		break;
 	case END_KEY:
 	case CTRL_KEY('e'):
-		if (editor.nrows == 0) {
+		if (editor.cury >= editor.nrows) {
 			break;
 		}
 		editor.curx = editor.row[editor.cury].size;
 		break;
 	default:
 		break;
-	}
-
-
-	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
-	reps = row ? row->size : 0;
-	if (editor.curx > reps) {
-		editor.curx = reps;
 	}
 }
 
@@ -2508,10 +2501,13 @@ newline(void)
 	struct erow *row = NULL;
 
 	if (editor.cury >= editor.nrows) {
-		/* At or past end of file, insert empty line */
 		erow_insert(editor.cury, "", 0);
+		editor.cury++;
+		editor.curx = 0;
 	} else if (editor.curx == 0) {
 		erow_insert(editor.cury, "", 0);
+		editor.cury++;
+		editor.curx = 0;
 	} else {
 		row = &editor.row[editor.cury];
 		erow_insert(editor.cury + 1,
@@ -2521,10 +2517,10 @@ newline(void)
 		row->size = editor.curx;
 		row->line[row->size] = '\0';
 		erow_update(row);
+		editor.cury++;
+		editor.curx = 0;
 	}
 
-	editor.cury++;
-	editor.curx = 0;
 	/* BREAK THE KILL CHAIN \m/ */
 	editor.kill = 0;
 }
