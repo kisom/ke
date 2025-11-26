@@ -88,13 +88,13 @@ struct abuf {
 
 /* editor row */
 struct erow {
-	char *line;
-	char *render;
+	char	*line;
+	char	*render;
 
-	int size;
-	int rsize;
+	int	 size;
+	int	 rsize;
 
-	int cap;
+	int	 cap;
 };
 
 
@@ -284,7 +284,10 @@ int		 cursor_at_eol(void);
 void		 delete_row(int at);
 void		 row_append_row(struct erow *row, char *s, int len);
 void		 row_insert_ch(struct erow *row, int at, int16_t c);
+void		 row_insert_block(struct erow *row, int at,
+			const char *data, size_t len);
 void		 row_delete_ch(struct erow *row, int at);
+void		 row_delete_block(struct erow *row, int at, size_t len);
 void		 insertch(int16_t c);
 void		 deletech(uint8_t op);
 void		 open_file(const char *filename);
@@ -1059,10 +1062,16 @@ editor_redo(void)
 void
 undo_apply(const struct undo_node *node, const int direction)
 {
+	struct erow	*erow = NULL;
 	int		 row = node->row;
 	int		 col = node->col;
 	const char	*data = node->text.b;
 	size_t		 len = node->text.len;
+
+	if (row >= editor.nrows) {
+		return;
+	}
+	erow = &editor.row[row];
 
 	jump_to_position(col, row);
 
@@ -1070,55 +1079,45 @@ undo_apply(const struct undo_node *node, const int direction)
 	case UNDO_PASTE:
 	case UNDO_INSERT:
 		if (direction > 0) {
-			for (size_t i = 0; i < len; i++) {
-				insertch((unsigned char)data[i]);
-			}
-		} else {
-			for (size_t i = 0; i < len; i++) {
-				deletech(KILLRING_NO_OP);
-			}
+			row_insert_block(erow, col, data, len);
+			editor.curx = col + len;
+		} else {                /* UNDO = delete the whole block */
+			row_delete_block(erow, col, len);
+			editor.curx = col;
 		}
 		break;
-
 	case UNDO_DELETE:
 		if (direction > 0) {
-			for (size_t i = 0; i < len; i++) {
-				deletech(KILLRING_NO_OP);
-			}
+			row_delete_block(erow, col, len);
+			editor.curx = col;
 		} else {
-			for (size_t i = 0; i < len; i++) {
-				insertch((unsigned char)data[i]);
-			}
+			row_insert_block(erow, col, data, len);
+			editor.curx = col + len;
 		}
 		break;
-
 	case UNDO_NEWLINE:
 		if (direction > 0) {
 			newline();
 		} else {
 			if (editor.cury > 0) {
-				editor.curx = editor.row[editor.cury - 1].size;
-				row_append_row(&editor.row[editor.cury - 1],
-				               editor.row[editor.cury].line,
-				               editor.row[editor.cury].size);
+				int prev = editor.cury - 1;
+				editor.curx = editor.row[prev].size;
+				row_append_row(&editor.row[prev],
+					       editor.row[editor.cury].line,
+					       editor.row[editor.cury].size);
 				delete_row(editor.cury);
 			}
 		}
 		break;
-
 	case UNDO_DELETE_ROW:
 		if (direction > 0) {
-			/* redo = delete the whole row again */
 			delete_row(editor.cury);
 		} else {
-			/* undo = re-insert the saved row (including final '\n') */
-			if (len > 0 && data[len - 1] == '\n') len--;
+			if (len > 0 && data[len-1] == '\n') len--;
 			erow_insert(editor.cury, (char*)data, len);
-			/* cursor goes to start of re-inserted row */
 			editor.curx = 0;
 		}
 		break;
-
 	case UNDO_INDENT:
 	case UNDO_KILL_REGION:
 		/* These are more complex – you can implement later */
@@ -1165,6 +1164,10 @@ killring_yank(void)
 			insertch(ch);
 		}
 	}
+
+	undo_begin(UNDO_PASTE);
+	undo_append(editor.killring->line, editor.killring->size);
+	undo_commit(); /* atomic */
 }
 
 
@@ -1794,6 +1797,38 @@ row_insert_ch(struct erow *row, int at, int16_t c)
 
 
 void
+row_insert_block(struct erow *row, int at, const char *data, size_t len)
+{
+	if (at < 0) {
+		at = 0;
+	}
+
+	if (at > row->size) {
+		at = row->size;
+	}
+
+	if (len == 0) {
+		return;
+	}
+
+	if (row->size + (int)len + 1 > row->cap) {
+		row->cap = cap_growth(row->cap, row->size + len + 1);
+		row->line = realloc(row->line, row->cap);
+		assert(row->line != NULL);
+	}
+
+	memmove(row->line + at + len, row->line + at,
+		row->size - at + 1); /* +1 for NUL */
+	memcpy(row->line + at, data, len);
+	row->size += len;
+	row->line[row->size] = '\0';
+
+	erow_update(row);
+	editor.dirty++;
+}
+
+
+void
 row_delete_ch(struct erow *row, int at)
 {
 	if (at < 0 || at >= row->size) {
@@ -1808,8 +1843,31 @@ row_delete_ch(struct erow *row, int at)
 
 
 void
+row_delete_block(struct erow *row, int at, size_t len)
+{
+	if (at < 0 || at >= row->size || len == 0) {
+		return;
+	}
+
+	if (at + (int)len > row->size) {
+		len = row->size - at;
+	}
+
+	memmove(row->line + at, row->line + at + len,
+		row->size - (at + len) + 1);
+	row->size -= len;
+	row->line[row->size] = '\0';
+
+	erow_update(row);
+	editor.dirty++;
+}
+
+
+void
 insertch(int16_t c)
 {
+	undo_begin(UNDO_INSERT);
+
 	/*
 	 * insert_ch doesn't need to worry about how to update a
 	 * a row; it can just figure out where the cursor is
@@ -1826,6 +1884,7 @@ insertch(int16_t c)
 	row_insert_ch(&editor.row[editor.cury],
 	              editor.curx,
 	              (int16_t)(c & 0xff));
+	undo_append_char((char)c);
 	editor.curx++;
 	editor.dirty++;
 }
@@ -1852,9 +1911,12 @@ deletech(uint8_t op)
 		dch = '\n';
 	}
 
+	undo_begin(UNDO_DELETE);
+
 	if (editor.curx > 0) {
 		row_delete_ch(row, editor.curx - 1);
 		editor.curx--;
+		undo_append_char(dch);
 	} else {
 		editor.curx = editor.row[editor.cury - 1].size;
 		row_append_row(&editor.row[editor.cury - 1],
@@ -1866,6 +1928,7 @@ deletech(uint8_t op)
 		delete_row(editor.cury);
 		editor.no_kill = prev;
 		editor.cury--;
+		undo_append_char('\n');
 	}
 
 	if (op == KILLRING_FLUSH) {
@@ -2378,8 +2441,10 @@ first_nonwhitespace(struct erow *row)
 void
 move_cursor_once(int16_t c, int interactive)
 {
-	struct erow *row;
-	int reps;
+	struct erow	*row;
+	int		 reps = 0;
+
+	undo_commit();
 
 	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
 
@@ -2500,6 +2565,8 @@ newline(void)
 {
 	struct erow *row = NULL;
 
+	undo_begin(UNDO_NEWLINE);
+
 	if (editor.cury >= editor.nrows) {
 		erow_insert(editor.cury, "", 0);
 		editor.cury++;
@@ -2523,6 +2590,9 @@ newline(void)
 
 	/* BREAK THE KILL CHAIN \m/ */
 	editor.kill = 0;
+
+	/* newlines aren't batched */
+	undo_commit();
 }
 
 
@@ -2583,6 +2653,8 @@ process_kcommand(int16_t c)
 	int	 jumpx = 0;
 	int	 jumpy = 0;
 	int	 reps  = 0;
+
+	undo_commit();
 
 	switch (c) {
 	case BACKSPACE:
@@ -2775,6 +2847,8 @@ process_normal(int16_t c)
 {
 	int	reps = 0;
 
+	undo_commit();
+
 	/* C-u handling – must be the very first thing */
 	if (c == CTRL_KEY('u')) {
 		uarg_start();
@@ -2875,6 +2949,8 @@ void
 process_escape(int16_t c)
 {
 	editor_set_status("hi");
+
+	undo_commit();
 
 	switch (c) {
 	case '>':
