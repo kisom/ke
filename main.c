@@ -187,6 +187,8 @@ size_t		 kstrnlen(const char *buf, const size_t max);
 void		 ab_init(struct abuf *buf);
 void		 ab_appendch(struct abuf *buf, char c);
 void		 ab_append(struct abuf *buf, const char *s, size_t len);
+void		 ab_prependch(struct abuf *buf, char c);
+void		 ab_prepend(struct abuf *buf, const char *s, size_t len);
 void		 ab_free(struct abuf *buf);
 char		 nibble_to_hex(char c);
 void		 swap_int(int *a, int *b);
@@ -249,6 +251,8 @@ int		 undo_continue_pending(undo_flag_t type);
 void		 undo_begin(undo_flag_t type);
 void		 undo_append_char(char c);
 void		 undo_append(const char *data, size_t len);
+void		 undo_prepend_char(char c);
+void		 undo_prepend(const char *data, size_t len);
 void		 undo_commit(void);
 void		 undo_discard_redo_branches(struct undo_node *from);
 undo_node_t	*undo_parent_of(undo_node_t *node);
@@ -525,6 +529,27 @@ ab_append(struct abuf *buf, const char *s, size_t len)
 	}
 
 	memcpy(&nc[buf->len], s, len);
+	buf->b = nc;
+	buf->len += len;
+}
+
+
+void
+ab_prependch(struct abuf *buf, const char c)
+{
+	ab_prepend(buf, &c, 1);
+}
+
+
+void
+ab_prepend(struct abuf *buf, const char *s, const size_t len)
+{
+	char	*nc = realloc(buf->b, buf->len + len);
+	assert(nc != NULL);
+
+	memmove(nc + len, nc, buf->len);
+	memcpy(nc, s, len);
+
 	buf->b = nc;
 	buf->len += len;
 }
@@ -897,26 +922,23 @@ undo_continue_pending(undo_flag_t type)
  * if a new pending sequence doesn't need to be created.
  */
 void
-undo_begin(const undo_flag_t type)
+undo_begin(undo_flag_t type)
 {
-	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*node = tree->pending;
+	struct undo_tree	*tree = editor.undo;
 
-	if (undo_continue_pending(type)) {
+	if (tree->pending &&
+	    tree->pending->type == type &&
+	    tree->pending->row == editor.cury &&
+	    tree->pending->col + (int)tree->pending->text.len == editor.curx)
+	{
 		return;
 	}
 
-	if (tree->pending != NULL) {
-		undo_commit();
-	}
+	undo_commit();
 
-	node = undo_node_new(type);
-	assert(node != NULL);
-
-	node->type = type;
-	node->row = editor.cury;
-	node->col = editor.curx;
-	tree->pending = node;
+	tree->pending = undo_node_new(type);
+	tree->pending->row = editor.cury;
+	tree->pending->col = editor.curx;
 }
 
 
@@ -942,6 +964,28 @@ undo_append(const char *data, const size_t len)
 }
 
 
+void
+undo_prepend_char(const char c)
+{
+	undo_node_t	*node = editor.undo->pending;
+
+	assert(node != NULL);
+
+	ab_prependch(&node->text, c);
+}
+
+
+void
+undo_prepend(const char *data, const size_t len)
+{
+	undo_node_t	*node = editor.undo->pending;
+
+	assert(node != NULL);
+
+	ab_prepend(&node->text, data, len);
+}
+
+
 /* Finish the current batch and link it into the tree */
 void
 undo_commit(void)
@@ -963,7 +1007,7 @@ undo_commit(void)
 
 
 	if (tree->root == NULL) {
-		/* First edit ever */
+		/* First edit in the history */
 		tree->root    = node;
 		tree->current = node;
 	} else if (tree->current == NULL) {
@@ -1022,115 +1066,21 @@ undo_parent_of(undo_node_t *node)
 void
 editor_undo(void)
 {
-	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*node = tree->current;
-	undo_node_t	*parent = NULL;
-
-	if (node == NULL || node == tree->root) {
-		editor_set_status("Nothing to undo.");
-		return;
-	}
-
-	parent = undo_parent_of(node);
-	assert(parent != NULL);
-
-	undo_apply(node, -1);
-	tree->current = parent;
-
-	display_refresh();
+	editor_set_status("Undo not implemented...");
 }
 
 
 void
 editor_redo(void)
 {
-	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*node = tree->current;
-
-	if (node == NULL || node->child == NULL) {
-		editor_set_status("Nothing to redo.");
-		return;
-	}
-
-	tree->current = node->child;
-	undo_apply(node->child, 1);
-
-	display_refresh();
+	editor_set_status("Redo not implemented...");
 }
 
 
 void
 undo_apply(const struct undo_node *node, const int direction)
 {
-	struct erow	*erow = NULL;
-	int		 row = node->row;
-	int		 col = node->col;
-	const char	*data = node->text.b;
-	size_t		 len = node->text.len;
-
-	if (row >= editor.nrows) {
-		return;
-	}
-	erow = &editor.row[row];
-
-	jump_to_position(col, row);
-
-	switch (node->type) {
-	case UNDO_PASTE:
-	case UNDO_INSERT:
-		if (direction > 0) {
-			row_insert_block(erow, col, data, len);
-			editor.curx = col + len;
-		} else {                /* UNDO = delete the whole block */
-			row_delete_block(erow, col, len);
-			editor.curx = col;
-		}
-		break;
-	case UNDO_DELETE:
-		if (direction > 0) {
-			row_delete_block(erow, col, len);
-			editor.curx = col;
-		} else {
-			row_insert_block(erow, col, data, len);
-			editor.curx = col + len;
-		}
-		break;
-	case UNDO_NEWLINE:
-		if (direction > 0) {
-			newline();
-		} else {
-			if (editor.cury > 0) {
-				int prev = editor.cury - 1;
-				editor.curx = editor.row[prev].size;
-				row_append_row(&editor.row[prev],
-					       editor.row[editor.cury].line,
-					       editor.row[editor.cury].size);
-				delete_row(editor.cury);
-			}
-		}
-		break;
-	case UNDO_DELETE_ROW:
-		if (direction > 0) {
-			delete_row(editor.cury);
-		} else {
-			if (len > 0 && data[len-1] == '\n') len--;
-			erow_insert(editor.cury, (char*)data, len);
-			editor.curx = 0;
-		}
-		break;
-	case UNDO_INDENT:
-	case UNDO_KILL_REGION:
-		/* These are more complex – you can implement later */
-		/* For now just move cursor and say "not implemented yet" */
-		editor_set_status("Undo of %s not implemented yet",
-		                  direction > 0 ? "redo" : "complex op");
-		break;
-	default:
-		editor_set_status("Unknown undo type: %d", node->type);
-		break;
-	}
-
-	editor.dirty = 1;
+	
 }
 
 
@@ -1886,6 +1836,10 @@ insertch(int16_t c)
 	              (int16_t)(c & 0xff));
 	undo_append_char((char)c);
 	editor.curx++;
+
+	if (editor.undo->pending != NULL) {
+		editor.undo->pending->col = editor.curx;
+	}
 	editor.dirty++;
 }
 
@@ -1893,8 +1847,8 @@ insertch(int16_t c)
 void
 deletech(uint8_t op)
 {
-	struct erow *row = NULL;
-	unsigned char dch = 0;
+	struct erow	*row = NULL;
+	unsigned char	 dch = 0;
 
 	if (editor.cury >= editor.nrows) {
 		return;
@@ -1929,6 +1883,10 @@ deletech(uint8_t op)
 		editor.no_kill = prev;
 		editor.cury--;
 		undo_append_char('\n');
+	}
+
+	if (editor.undo->pending != NULL) {
+		editor.undo->pending->col = editor.curx;
 	}
 
 	if (op == KILLRING_FLUSH) {
@@ -2813,7 +2771,11 @@ process_kcommand(int16_t c)
 	case 'x':
 		exit(save_file());
 	case 'u':
-		editor_undo();
+		reps = uarg_get();
+
+		while (reps--) {
+			editor_undo();
+		}
 		break;
 	case 'U':
 		editor_redo();
