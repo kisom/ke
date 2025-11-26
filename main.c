@@ -71,14 +71,16 @@
 #define KILLRING_FLUSH		4	/* clear the killring */
 
 
+#define calloc1(sz)		calloc(1, sz)
+
 static FILE* debug_log = NULL;
 
 
 /* append buffer */
 struct abuf {
-	char *b;
-	int len;
-	int cap;
+	char	*b;
+	int	 len;
+	int	 cap;
 };
 
 #define ABUF_INIT		{NULL, 0, 0}
@@ -110,9 +112,8 @@ struct editor_t {
 	int		 rowoffs, coloffs;
 	struct erow	*row;
 	struct erow	*killring;
-	int		 kill; /* are we in a contiguous delete sequence? */
-	/* internal flag: don't kill in delete_row */
-	int		 no_kill;
+	int		 kill;    /* KILL CHAIN (sounds metal) */
+	int		 no_kill; /* don't kill in delete_row */
 	char		*filename;
 	int		 dirty;
 	int		 dirtyex;
@@ -142,14 +143,19 @@ struct editor_t {
 };
 
 
+void		 init_editor(void);
+void		 reset_editor(void);
+
+/* small tools, abufs, etc */
 int		 next_power_of_2(int n);
 int		 cap_growth(int cap, int sz);
 size_t		 kstrnlen(const char *buf, const size_t max);
-void		 init_editor(void);
-void		 reset_editor(void);
+void		 ab_init(struct abuf *buf);
 void		 ab_append(struct abuf *buf, const char *s, int len);
 void		 ab_free(struct abuf *buf);
 char		 nibble_to_hex(char c);
+
+/* editor rows */
 int		 erow_render_to_cursor(struct erow *row, int cx);
 int		 erow_cursor_to_render(struct erow *row, int rx);
 int		 erow_init(struct erow *row, int len);
@@ -360,17 +366,21 @@ reset_editor(void)
 		editor.filename = NULL;
 	}
 
-	/* commenting this out, it's useful to be able
-	 * yank across files. */
-	/*
-	if (editor.killring != NULL) {
-		erow_free(editor.killring);
-		free(editor.killring);
-		editor.killring = NULL;
+	if (editor.undo != NULL) {
+		undo_tree_free(editor.undo);
+		editor.undo = NULL;
 	}
-	*/
 
 	init_editor();
+}
+
+
+void
+ab_init(struct abuf *buf)
+{
+	buf->b = NULL;
+	buf->len = 0;
+	buf->cap = 0;
 }
 
 
@@ -431,11 +441,10 @@ swap_int(int *a, int *b)
 int
 erow_render_to_cursor(struct erow *row, int cx)
 {
-	int rx = 0;
-	size_t j = 0;
-
-	wchar_t wc;
-	mbstate_t st;
+	int		 rx = 0;
+	size_t		 j = 0;
+	wchar_t		 wc;
+	mbstate_t	 st;
 
 	memset(&st, 0, sizeof(st));
 
@@ -487,11 +496,10 @@ erow_render_to_cursor(struct erow *row, int cx)
 int
 erow_cursor_to_render(struct erow *row, int rx)
 {
-	int cur_rx = 0;
-	size_t j = 0;
-
-	wchar_t wc;
-	mbstate_t st;
+	int		 cur_rx = 0;
+	size_t		 j = 0;
+	wchar_t		 wc;
+	mbstate_t	 st;
 
 	memset(&st, 0, sizeof(st));
 
@@ -612,7 +620,7 @@ erow_update(struct erow *row)
 void
 erow_insert(int at, char *s, int len)
 {
-	struct erow row;
+	struct erow	row;
 
 	if (at < 0 || at > editor.nrows) {
 		return;
@@ -901,6 +909,68 @@ indent_region(void)
 }
 
 
+void
+unindent_region(void)
+{
+	int		 start_row, end_row, i, del;
+	struct erow	*row;
+
+	if (!editor.mark_set) {
+		editor_set_status("Mark not set.");
+		return;
+	}
+
+	if (editor.mark_cury < editor.cury ||
+	    (editor.mark_cury == editor.cury && editor.mark_curx < editor.curx)) {
+		start_row = editor.mark_cury;
+		end_row   = editor.cury;
+	    } else {
+	    	start_row = editor.cury;
+	    	end_row   = editor.mark_cury;
+	    }
+
+	if (start_row >= editor.nrows) {
+		return;
+	}
+
+	if (end_row >= editor.nrows) {
+		end_row = editor.nrows - 1;
+	}
+
+	/* actually unindent every line in the region */
+	for (i = start_row; i <= end_row; i++) {
+		row = &editor.row[i];
+
+		if (row->size == 0) {
+			continue;
+		}
+
+		if (row->line[0] == '\t') {
+			row_delete_ch(row, 0);
+		} else if (row->line[0] == ' ') {
+			del = 0;
+
+			while (del < TAB_STOP && del < row->size &&
+				row->line[del] == ' ') {
+				del++;
+			}
+
+			if (del > 0) {
+				memmove(row->line, row->line + del, row->size - del + 1); /* +1 for NUL */
+				row->size -= del;
+				erow_update(row);
+			}
+		}
+	}
+
+	editor.curx = 0;
+	editor.cury = start_row;
+
+	editor.dirty++;
+	editor_set_status("Region unindented");
+}
+
+
 /* call after kill_region */
 void
 delete_region(void)
@@ -940,7 +1010,7 @@ delete_region(void)
 
 
 void
-kwrite(const int fd, const char *buf, const int len)
+kwrite(const int fd, const char* buf, const int len)
 {
 	int wlen = 0;
 
@@ -954,7 +1024,7 @@ kwrite(const int fd, const char *buf, const int len)
 
 
 void
-die(const char *s)
+die(const char* s)
 {
 	kwrite(STDOUT_FILENO, "\x1b[2J", 4);
 	kwrite(STDOUT_FILENO, "\x1b[H", 3);
@@ -1297,21 +1367,12 @@ deletech(uint8_t op)
 	}
 
 	row = &editor.row[editor.cury];
-
-	if (cursor_at_eol()) {
-		if (editor.cury >= editor.nrows - 1) {
-			return;
-		}
-	}
-
-	/* determine which character is being deleted for killring purposes */
 	if (editor.curx > 0) {
 		dch = (unsigned char)row->line[editor.curx - 1];
 	} else {
 		dch = '\n';
 	}
 
-	/* update buffer */
 	if (editor.curx > 0) {
 		row_delete_ch(row, editor.curx - 1);
 		editor.curx--;
@@ -1322,13 +1383,12 @@ deletech(uint8_t op)
 		               row->size);
 		int prev = editor.no_kill;
 		editor.no_kill = 1;
-		/* prevent killring update on internal row delete */
+
 		delete_row(editor.cury);
 		editor.no_kill = prev;
 		editor.cury--;
 	}
 
-	/* update killring if requested */
 	if (op == KILLRING_FLUSH) {
 		killring_flush();
 		editor.kill = 0;
@@ -1336,7 +1396,6 @@ deletech(uint8_t op)
 	}
 
 	if (op == KILLRING_NO_OP) {
-		/* Do not modify killring or chaining state. */
 		return;
 	}
 
@@ -1375,7 +1434,7 @@ open_file(const char *filename)
 	assert(editor.filename != NULL);
 
 	editor.dirty = 0;
-	if ((fp = fopen(filename, "r")) == NULL) {
+	if ((fp = fopen(editor.filename, "r")) == NULL) {
 		if (errno == ENOENT) {
 			editor_set_status("[new file]");
 			return;
@@ -1605,16 +1664,21 @@ get_keypress(void)
 char
 *editor_prompt(char *prompt, void (*cb)(char*, int16_t))
 {
-	size_t bufsz = 128;
-	char *buf = malloc(bufsz);
-	size_t buflen = 0;
-	int16_t c;
+	size_t		 bufsz = 128;
+	char		*buf = malloc(bufsz);
+	size_t		 buflen = 0;
+	int16_t		 c;
+
+	if (buf == NULL) {
+		return NULL;
+	}
 
 	buf[0] = '\0';
 
 	while (1) {
 		editor_set_status(prompt, buf);
 		display_refresh();
+
 		while ((c = get_keypress()) <= 0);
 		if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
 			if (buflen != 0) {
@@ -1625,6 +1689,7 @@ char
 			if (cb) {
 				cb(buf, c);
 			}
+
 			free(buf);
 			return NULL;
 		} else if (c == '\r') {
@@ -1633,12 +1698,14 @@ char
 				if (cb) {
 					cb(buf, c);
 				}
+
 				return buf;
 			}
 		} else if ((c == TAB_KEY) || (c >= 0x20 && c < 0x7f)) {
 			if (buflen == bufsz - 1) {
 				bufsz *= 2;
 				buf = realloc(buf, bufsz);
+
 				assert(buf != NULL);
 			}
 
@@ -1856,6 +1923,7 @@ editor_openfile(void)
 	}
 
 	open_file(filename);
+	free(filename);
 }
 
 
@@ -2137,9 +2205,16 @@ process_kcommand(int16_t c)
 			process_normal(BACKSPACE);
 		}
 		break;
-	case TAB_KEY:
+	case '=':
 		if (editor.mark_set) {
 			indent_region();
+		} else {
+			editor_set_status("Mark not set.");
+		}
+		break;
+	case '-':
+		if (editor.mark_set) {
+			unindent_region();
 		} else {
 			editor_set_status("Mark not set.");
 		}
