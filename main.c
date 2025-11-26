@@ -193,8 +193,6 @@ void		 goto_line(void);
 int		 cursor_at_eol(void);
 void		 delete_row(int at);
 void		 row_insert_ch(struct erow *row, int at, int16_t c);
-void		 row_insert_block(struct erow *row, int at,
-			const char *data, size_t len);
 void		 row_delete_ch(struct erow *row, int at);
 void		 insertch(int16_t c);
 void		 deletech(uint8_t op);
