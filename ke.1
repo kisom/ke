@@ -40,12 +40,19 @@ Edit a new file. Also C-k C-e.
 Incremental find.
 .It C-k g
 Go to a specific line.
+.It C-k j
+Jump to the mark.
 .It C-k l
 List the number of lines of code in a saved file.
 .It C-k m
 Run make(1).
 .It C-k q
-exit the editor. Also C-k C-q.
+Exit the editor. If the file has unsaved changes,
+a warning will be printed; a second C-k q will exit.
+.It C-k C-q
+Immediately exit the editor.
+.It C-k C-r
+Reload the current buffer from disk.
 .It C-k s
 save the file, prompting for a filename if needed. Also C-k C-s.
 .It C-k x

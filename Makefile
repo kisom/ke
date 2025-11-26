@@ -26,3 +26,8 @@ clean:
 .PHONY: test.txt
 test.txt:
 	cp test.txt.bak $@
+
+.PHONY: gdb
+gdb:
+	@test -f $(TARGET).pid || (echo "error: $(TARGET).pid not found" >&2; exit 1)
+	@gdb -p $$(cat $(TARGET).pid | tr -d ' \t\n\r') ./$(TARGET)
