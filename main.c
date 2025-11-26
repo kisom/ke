@@ -192,12 +192,10 @@ void		 jump_to_position(int col, int row);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
 void		 delete_row(int at);
-void		 row_append_row(struct erow *row, char *s, int len);
 void		 row_insert_ch(struct erow *row, int at, int16_t c);
 void		 row_insert_block(struct erow *row, int at,
 			const char *data, size_t len);
 void		 row_delete_ch(struct erow *row, int at);
-void		 row_delete_block(struct erow *row, int at, size_t len);
 void		 insertch(int16_t c);
 void		 deletech(uint8_t op);
 void		 open_file(const char *filename);
@@ -384,10 +382,6 @@ reset_editor(void)
 		editor.filename = NULL;
 	}
 
-	if (editor.undo != NULL) {
-		undo_tree_free(editor.undo);
-		editor.undo = NULL;
-	}
 
 	init_editor();
 }
@@ -702,287 +696,6 @@ erow_free(struct erow *row)
 }
 
 
-undo_node_t *
-undo_node_new(undo_flag_t type)
-{
-	undo_node_t *node = calloc1(sizeof(undo_node_t));
-
-	node->type = type;
-	node->row = node->col = 0;
-	node->next = NULL;
-	node->child = NULL;
-
-	ab_init(&node->text);
-
-	return node;
-}
-
-
-void
-undo_node_free(undo_node_t *node)
-{
-	if (node == NULL) {
-		return;
-	}
-
-	ab_free(&node->text);
-	undo_node_free(node->child);
-	undo_node_free(node->next);
-	free(node);
-}
-
-
-void
-undo_node_free_branch(undo_node_t *node)
-{
-	undo_node_t	*next = NULL;
-
-	if (node == NULL) {
-		return;
-	}
-
-	while (node != NULL) {
-		next = node->next;
-		undo_node_free(node->child);
-		ab_free(&node->text);
-		free(node);
-		node = next;
-	}
-}
-
-
-undo_tree_t *
-undo_tree_new(void)
-{
-	undo_tree_t	*tree = NULL;
-
-	tree = calloc1(sizeof(undo_tree_t));
-	tree->root = NULL;
-	tree->current = NULL;
-	tree->saved = NULL;
-	tree->pending = NULL;
-
-	return tree;
-}
-
-
-void
-undo_tree_free(undo_tree_t *ut)
-{
-	if (ut == NULL) {
-		return;
-	}
-
-	undo_node_free(ut->root);
-	undo_node_free(ut->pending);
-
-	if (debug_log == NULL) {
-		ut->root = NULL;
-		ut->current = NULL;
-		ut->saved = NULL;
-		ut->pending = NULL;
-	} else {
-		ut->root =
-			ut->current =
-			ut->saved =
-			ut->pending =
-			(void *)0xDEADBEEF;
-	}
-
-	free(ut);
-}
-
-
-int
-undo_continue_pending(undo_flag_t type)
-{
-	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*node = tree->pending;
-
-	/* no pending node, so we need to start anew. */
-	if (node == NULL) {
-		return 0;
-	}
-
-	if (node->type != type) {
-		return 0;
-	}
-
-	if (node->row != editor.cury || node->col != editor.curx) {
-		return 0;
-	}
-
-	return 1;
-}
-
-
-/*
- * undo_begin starts a new undo sequence. Note that it is a non-op
- * if a new pending sequence doesn't need to be created.
- */
-void
-undo_begin(undo_flag_t type)
-{
-	struct undo_tree	*tree = editor.undo;
-
-	if (tree->pending &&
-	    tree->pending->type == type &&
-	    tree->pending->row == editor.cury &&
-	    tree->pending->col + (int)tree->pending->text.len == editor.curx)
-	{
-		return;
-	}
-
-	undo_commit();
-
-	tree->pending = undo_node_new(type);
-	tree->pending->row = editor.cury;
-	tree->pending->col = editor.curx;
-}
-
-
-void
-undo_append_char(const char c)
-{
-	undo_node_t	*node = editor.undo->pending;
-
-	assert(node != NULL);
-
-	ab_appendch(&node->text, c);
-}
-
-
-void
-undo_append(const char *data, const size_t len)
-{
-	undo_node_t	*node = editor.undo->pending;
-
-	assert(node != NULL);
-
-	ab_append(&node->text, data, len);
-}
-
-
-void
-undo_prepend_char(const char c)
-{
-	undo_node_t	*node = editor.undo->pending;
-
-	assert(node != NULL);
-
-	ab_prependch(&node->text, c);
-}
-
-
-void
-undo_prepend(const char *data, const size_t len)
-{
-	undo_node_t	*node = editor.undo->pending;
-
-	assert(node != NULL);
-
-	ab_prepend(&node->text, data, len);
-}
-
-
-/* Finish the current batch and link it into the tree */
-void
-undo_commit(void)
-{
-	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*node = NULL;
-
-	if (tree->pending == NULL) {
-		return; /* nothing to commit */
-	}
-
-	node = tree->pending;
-	tree->pending = NULL;
-
-	if (tree->current && tree->current->child) {
-		undo_node_free_branch(tree->current->child);
-		tree->current->child = NULL;
-	}
-
-
-	if (tree->root == NULL) {
-		/* First edit in the history */
-		tree->root    = node;
-		tree->current = node;
-	} else if (tree->current == NULL) {
-		/* this shouldn't happen, so throw an
-		 * assert to catch it.
-		 */
-		assert(tree->current != NULL);
-		tree->root = tree->current = node;
-	} else {
-		tree->current->child = node;
-		tree->current        = node;
-	}
-
-	if (tree->saved && tree->current != tree->saved) {
-		tree->saved = NULL;
-	}
-
-	editor.dirty = 1;
-}
-
-
-void
-undo_discard_redo_branches(struct undo_node *from)
-{
-	undo_node_free(from->child);
-	from->child = NULL;
-
-	undo_node_free(from->next);
-	from->next = NULL;
-}
-
-
-undo_node_t *
-undo_parent_of(undo_node_t *node)
-{
-	undo_tree_t	*tree = editor.undo;
-	undo_node_t	*parent = tree->root;
-
-	if (tree->root == node) {
-		return NULL;
-	}
-
-	parent = tree->root;
-	while (parent != NULL && parent->child != node) {
-		parent = parent->child;
-	}
-
-	if (parent == NULL) {
-		return NULL;
-	}
-
-	return parent;
-}
-
-
-void
-editor_undo(void)
-{
-	editor_set_status("Undo not implemented...");
-}
-
-
-void
-editor_redo(void)
-{
-	editor_set_status("Redo not implemented...");
-}
-
-
-void
-undo_apply(const struct undo_node *node, const int direction)
-{
-	
-}
-
-
 void
 killring_flush(void)
 {
@@ -1013,10 +726,6 @@ killring_yank(void)
 			insertch(ch);
 		}
 	}
-
-	undo_begin(UNDO_PASTE);
-	undo_append(editor.killring->line, editor.killring->size);
-	undo_commit(); /* atomic */
 }
 
 
@@ -1646,38 +1355,6 @@ row_insert_ch(struct erow *row, int at, int16_t c)
 
 
 void
-row_insert_block(struct erow *row, int at, const char *data, size_t len)
-{
-	if (at < 0) {
-		at = 0;
-	}
-
-	if (at > row->size) {
-		at = row->size;
-	}
-
-	if (len == 0) {
-		return;
-	}
-
-	if (row->size + (int)len + 1 > row->cap) {
-		row->cap = cap_growth(row->cap, row->size + len + 1);
-		row->line = realloc(row->line, row->cap);
-		assert(row->line != NULL);
-	}
-
-	memmove(row->line + at + len, row->line + at,
-		row->size - at + 1); /* +1 for NUL */
-	memcpy(row->line + at, data, len);
-	row->size += len;
-	row->line[row->size] = '\0';
-
-	erow_update(row);
-	editor.dirty++;
-}
-
-
-void
 row_delete_ch(struct erow *row, int at)
 {
 	if (at < 0 || at >= row->size) {
@@ -1692,31 +1369,8 @@ row_delete_ch(struct erow *row, int at)
 
 
 void
-row_delete_block(struct erow *row, int at, size_t len)
-{
-	if (at < 0 || at >= row->size || len == 0) {
-		return;
-	}
-
-	if (at + (int)len > row->size) {
-		len = row->size - at;
-	}
-
-	memmove(row->line + at, row->line + at + len,
-		row->size - (at + len) + 1);
-	row->size -= len;
-	row->line[row->size] = '\0';
-
-	erow_update(row);
-	editor.dirty++;
-}
-
-
-void
 insertch(int16_t c)
 {
-	undo_begin(UNDO_INSERT);
-
 	/*
 	 * insert_ch doesn't need to worry about how to update a
 	 * a row; it can just figure out where the cursor is
@@ -1733,12 +1387,7 @@ insertch(int16_t c)
 	row_insert_ch(&editor.row[editor.cury],
 	              editor.curx,
 	              (int16_t)(c & 0xff));
-	undo_append_char((char)c);
 	editor.curx++;
-
-	if (editor.undo->pending != NULL) {
-		editor.undo->pending->col = editor.curx;
-	}
 	editor.dirty++;
 }
 
@@ -1764,12 +1413,9 @@ deletech(uint8_t op)
 		dch = '\n';
 	}
 
-	undo_begin(UNDO_DELETE);
-
 	if (editor.curx > 0) {
 		row_delete_ch(row, editor.curx - 1);
 		editor.curx--;
-		undo_append_char(dch);
 	} else {
 		editor.curx = editor.row[editor.cury - 1].size;
 		row_append_row(&editor.row[editor.cury - 1],
@@ -1781,11 +1427,6 @@ deletech(uint8_t op)
 		delete_row(editor.cury);
 		editor.no_kill = prev;
 		editor.cury--;
-		undo_append_char('\n');
-	}
-
-	if (editor.undo->pending != NULL) {
-		editor.undo->pending->col = editor.curx;
 	}
 
 	if (op == KILLRING_FLUSH) {
@@ -2301,8 +1942,6 @@ move_cursor_once(int16_t c, int interactive)
 	struct erow	*row;
 	int		 reps = 0;
 
-	undo_commit();
-
 	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
 
 	switch (c) {
@@ -2422,8 +2061,6 @@ newline(void)
 {
 	struct erow *row = NULL;
 
-	undo_begin(UNDO_NEWLINE);
-
 	if (editor.cury >= editor.nrows) {
 		erow_insert(editor.cury, "", 0);
 		editor.cury++;
@@ -2447,9 +2084,6 @@ newline(void)
 
 	/* BREAK THE KILL CHAIN \m/ */
 	editor.kill = 0;
-
-	/* newlines aren't batched */
-	undo_commit();
 }
 
 
@@ -2510,8 +2144,6 @@ process_kcommand(int16_t c)
 	int	 jumpx = 0;
 	int	 jumpy = 0;
 	int	 reps  = 0;
-
-	undo_commit();
 
 	switch (c) {
 	case BACKSPACE:
@@ -2672,12 +2304,10 @@ process_kcommand(int16_t c)
 	case 'u':
 		reps = uarg_get();
 
-		while (reps--) {
-			editor_undo();
-		}
+		while (reps--);
+		editor_set_status("Undo not implemented.");
 		break;
 	case 'U':
-		editor_redo();
 		break;
 	case 'y':
 		reps = uarg_get();
@@ -2707,8 +2337,6 @@ void
 process_normal(int16_t c)
 {
 	int	reps = 0;
-
-	undo_commit();
 
 	/* C-u handling – must be the very first thing */
 	if (c == CTRL_KEY('u')) {
@@ -2810,8 +2438,6 @@ void
 process_escape(int16_t c)
 {
 	editor_set_status("hi");
-
-	undo_commit();
 
 	switch (c) {
 	case '>':
