@@ -1,15 +1,18 @@
 [X] goto-line
 [X] text-corruption bug
 [ ] alt-modifiers
-[ ] refresh-screen
-[ ] functions -> keymapping?
+[x] refresh-screen
+[ ] functions -> keymapping? (what did this even mean)
 [X] rendering: need to skip over control characters like we do with tabs
 [X] control-d -> delete
-[ ] control-g -> exit buf prompt
-[ ] load-file prompt on dirty buffer
+[x] control-g -> exit buf prompt
+[x] load-file prompt on dirty buffer
 [ ] multiple files
+[x] utf-8
+[x] kill ring
+[x] mark/region
 
 What would it take for ke to be your daily drives?
-+ C-u
-+ Alt nav (backspace, delete, f, b, etc)
-
+[ ] C-u (repeat actions)
+[x] Alt nav (backspace, delete, f, b, etc)
+[ ] undo tree (C-k u) 

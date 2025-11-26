@@ -26,10 +26,14 @@ k-command mode can be exited with ESC or C-g.
 .Bl -tag -width xxxxxxxxxxxx -offset indent
 .It C-k BACKSPACE
 Delete from the cursor to the beginning of the line.
-.It C-k c
-Clear (flush) the kill ring.
 .It C-k SPACE
 Toggle the mark.
+.It C-k -
+If the mark is set, unindent the region.
+.It C-k =
+If the mark is set, indent the region.
+.It C-k c
+Clear (flush) the kill ring.
 .It C-k d
 Delete from the cursor to the end of the line.
 .It C-k C-d
@@ -54,7 +58,9 @@ Immediately exit the editor.
 .It C-k C-r
 Reload the current buffer from disk.
 .It C-k s
-save the file, prompting for a filename if needed. Also C-k C-s.
+Save the file, prompting for a filename if needed. Also C-k C-s.
+.It C-k u
+Undo changes. Not implemented yet, placeholder.
 .It C-k x
 save the file and exit. Also C-k C-x.
 .It C-k y

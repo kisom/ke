@@ -2,6 +2,8 @@
  * scratch.c - ideas in progress
  */
 
+#define REFLOW_MARGIN		72
+
 void
 reflow_region(void)
 {
