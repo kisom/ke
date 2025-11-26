@@ -95,6 +95,7 @@ struct erow {
 	int	 rsize;
 
 	int	 cap;
+	int	 dirty;
 };
 
 
@@ -191,6 +192,11 @@ int		 get_winsz(int *rows, int *cols);
 void		 jump_to_position(int col, int row);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
+int		 iswordchar(unsigned char c);
+void		 find_next_word(void);
+void		 delete_next_word(void);
+void		 find_prev_word(void);
+void		 delete_prev_word(void);
 void		 delete_row(int at);
 void		 row_insert_ch(struct erow *row, int at, int16_t c);
 void		 row_delete_ch(struct erow *row, int at);
@@ -595,6 +601,7 @@ erow_init(struct erow *row, int len)
 	row->render = NULL;
 	row->line = NULL;
 	row->cap = cap_growth(0, len) + 1; /* extra byte for NUL end */
+	row->dirty = 1;
 
 	row->line = malloc(row->cap);
 	assert(row->line != NULL);
@@ -750,7 +757,7 @@ killring_start_with_char(unsigned char ch)
 	row->line[row->size] = ch;
 	row->size++;
 	row->line[row->size] = '\0';
-	erow_update(row);
+	row->dirty = 1;
 }
 
 
@@ -770,7 +777,7 @@ killring_append_char(unsigned char ch)
 	row->line[row->size] = ch;
 	row->size++;
 	row->line[row->size] = '\0';
-	erow_update(row);
+	row->dirty = 1;
 }
 
 
@@ -788,7 +795,7 @@ killring_prepend_char(unsigned char ch)
 	memmove(&row->line[1], &row->line[0], row->size + 1);
 	row->line[0] = ch;
 	row->size++;
-	erow_update(row);
+	row->dirty = 1;
 }
 
 
@@ -996,7 +1003,7 @@ unindent_region(void)
 			if (del > 0) {
 				memmove(row->line, row->line + del, row->size - del + 1); /* +1 for NUL */
 				row->size -= del;
-				erow_update(row);
+				row->dirty = 1;
 			}
 		}
 	}
@@ -1155,6 +1162,13 @@ cursor_at_eol(void)
 }
 
 
+int
+iswordchar(unsigned char c)
+{
+	return isalnum(c) || c == '_' || strchr("/!@#$%^&*+-=~", c) != NULL;
+}
+
+
 void
 find_next_word(void)
 {
@@ -1162,7 +1176,7 @@ find_next_word(void)
 		move_cursor(ARROW_RIGHT, 1);
 	}
 
-	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
+	if (iswordchar(editor.row[editor.cury].line[editor.curx])) {
 		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !
 			cursor_at_eol()) {
 			move_cursor(ARROW_RIGHT, 1);
@@ -1189,7 +1203,7 @@ delete_next_word(void)
 		deletech(KILLRING_APPEND);
 	}
 
-	if (isalnum(editor.row[editor.cury].line[editor.curx])) {
+	if (iswordchar(editor.row[editor.cury].line[editor.curx])) {
 		while (!isspace(editor.row[editor.cury].line[editor.curx]) && !
 			cursor_at_eol()) {
 			move_cursor(ARROW_RIGHT, 1);
@@ -1326,7 +1340,7 @@ row_append_row(struct erow *row, char *s, int len)
 	memcpy(&row->line[row->size], s, len);
 	row->size += len;
 	row->line[row->size] = '\0';
-	erow_update(row);
+	row->dirty = 1;
 	editor.dirty++;
 }
 
@@ -1348,7 +1362,7 @@ row_insert_ch(struct erow *row, int at, int16_t c)
 	row->size++;
 	row->line[at] = c & 0xff;
 
-	erow_update(row);
+	row->dirty = 1;
 }
 
 
@@ -1361,7 +1375,7 @@ row_delete_ch(struct erow *row, int at)
 
 	memmove(&row->line[at], &row->line[at + 1], row->size - at);
 	row->size--;
-	erow_update(row);
+	row->dirty = 1;
 	editor.dirty++;
 }
 
@@ -1820,7 +1834,7 @@ editor_find_callback(char* query, int16_t c)
 		row = &editor.row[current];
 
 		/* Skip rendering search on raw bytes — use line[] but respect render offsets */
-		erow_update(row);
+		row->dirty = 1;
 
 		char* search_start = row->render;
 		if (current == start_row && direction == 1 && last_match == -1) {
@@ -2075,7 +2089,7 @@ newline(void)
 		row = &editor.row[editor.cury];
 		row->size = editor.curx;
 		row->line[row->size] = '\0';
-		erow_update(row);
+		row->dirty = 1;
 		editor.cury++;
 		editor.curx = 0;
 	}
@@ -2701,7 +2715,11 @@ draw_rows(struct abuf *ab)
 			}
 		} else {
 			row = &editor.row[filerow];
-			erow_update(row);
+			if (row->dirty) {
+				erow_update(row);
+				row->dirty = 0;
+			}
+
 			len = row->rsize - editor.coloffs;
 			if (len < 0) {
 				len = 0;
@@ -2805,11 +2823,15 @@ draw_message_line(struct abuf *ab)
 void
 scroll(void)
 {
+	struct erow	*row = NULL;
 	editor.rx = 0;
 	if (editor.cury < editor.nrows) {
-		editor.rx = erow_render_to_cursor(
-			&editor.row[editor.cury],
-			editor.curx);
+		row = &editor.row[editor.cury];
+		if (row->dirty == 1) {
+			erow_update(row);
+		}
+
+		editor.rx = erow_render_to_cursor(row, editor.curx);
 	}
 
 	if (editor.cury < editor.rowoffs) {
@@ -2839,6 +2861,7 @@ display_refresh(void)
 	scroll();
 
 	ab_append(&ab, ESCSEQ "?25l", 6);
+	ab_append(&ab, ESCSEQ "H", 3);
 	display_clear(&ab);
 
 	draw_rows(&ab);
@@ -2852,7 +2875,7 @@ display_refresh(void)
 	         (editor.rx - editor.coloffs) + 1);
 	ab_append(&ab, buf, kstrnlen(buf, 32));
 	/* ab_append(&ab, ESCSEQ "1;2H", 7); */
-	ab_append(&ab, ESCSEQ "?25h", 6);
+	ab_append(&ab, ESCSEQ "?25l", 6);
 
 	kwrite(STDOUT_FILENO, ab.b, ab.len);
 	ab_free(&ab);
@@ -2872,6 +2895,15 @@ editor_set_status(const char *fmt, ...)
 }
 
 
+int
+kbhit(void)
+{
+	int	 bytes_waiting;
+	ioctl(STDIN_FILENO, FIONREAD, &bytes_waiting);
+	return bytes_waiting > 0;
+}
+
+
 void
 loop(void)
 {
@@ -2888,7 +2920,9 @@ loop(void)
 		 *
 		 */
 		if ((up = process_keypress()) != 0) {
-			while (process_keypress());
+			while (kbhit()) {
+				process_keypress();
+			}
 		}
 	}
 }
