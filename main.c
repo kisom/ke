@@ -73,8 +73,6 @@
 
 #define calloc1(sz)		calloc(1, sz)
 
-static FILE* debug_log = NULL;
-
 
 /* append buffer */
 struct abuf {
@@ -238,7 +236,7 @@ void		 scroll(void);
 void		 display_refresh(void);
 void		 editor_set_status(const char *fmt, ...);
 void		 loop(void);
-void		 enable_debugging(const char *logfile);
+void		 enable_debugging(void);
 void		 deathknell(void);
 static void	 signal_handler(int sig);
 static void	 install_signal_handlers(void);
@@ -2956,21 +2954,11 @@ loop(void)
 
 
 void
-enable_debugging(const char *logfile)
+enable_debugging(void)
 {
 	time_t now;
 
-	if (debug_log != NULL) {
-		fclose(debug_log);
-	}
-
-	if ((debug_log = fopen(logfile, "w")) == NULL) {
-		fprintf(stderr, "Failed to open error log!\n");
-		fprintf(stderr, "\t%s\n", strerror(errno));
-	}
-
 	dump_pidfile();
-	stderr = debug_log;
 
 	now = time(&now);
 	printf("time: %s\n", ctime(&now));
@@ -2982,12 +2970,7 @@ enable_debugging(const char *logfile)
 void
 deathknell(void)
 {
-	if (debug_log != NULL) {
-		fflush(stderr);
-
-		fclose(debug_log);
-		debug_log = NULL;
-	}
+	fflush(stderr);
 
 	if (editor.killring != NULL) {
 		erow_free(editor.killring);
@@ -3044,7 +3027,6 @@ install_signal_handlers(void)
 int
 main(int argc, char *argv[])
 {
-	char *logfile = "debug-ke.log";
 	int opt;
 	int debug = 0;
 
@@ -3054,9 +3036,6 @@ main(int argc, char *argv[])
 		switch (opt) {
 		case 'd':
 			debug = 1;
-			break;
-		case 'f':
-			logfile = optarg;
 			break;
 		default:
 			fprintf(stderr, "Usage: ke [-d] [-f logfile] [path]\n");
@@ -3069,7 +3048,7 @@ main(int argc, char *argv[])
 
 	setlocale(LC_ALL, "");
 	if (debug) {
-		enable_debugging(logfile);
+		enable_debugging();
 	}
 
 	setup_terminal();
