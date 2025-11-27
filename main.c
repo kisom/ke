@@ -1417,6 +1417,7 @@ deletech(uint8_t op)
 {
 	struct erow	*row = NULL;
 	unsigned char	 dch = 0;
+	int		 prev = 0;
 
 	if (editor.cury >= editor.nrows) {
 		return;
@@ -1441,7 +1442,8 @@ deletech(uint8_t op)
 		row_append_row(&editor.row[editor.cury - 1],
 		               row->line,
 		               row->size);
-		int prev = editor.no_kill;
+
+		prev = editor.no_kill;
 		editor.no_kill = 1;
 
 		delete_row(editor.cury);
