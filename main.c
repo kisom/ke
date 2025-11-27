@@ -3119,7 +3119,9 @@ main(int argc, char *argv[])
 			lnarg++;
 		}
 		lineno = atoi(lnarg);
-		jump = 0;
+		jump = 1;
+		fprintf(stderr, "fname: %s\nlnarg: %s\nlineno: %d\n",
+			fname, lnarg, lineno);
 	}
 
 	if (fname != NULL) {
