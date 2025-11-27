@@ -3077,7 +3077,8 @@ install_signal_handlers(void)
 int
 main(int argc, char *argv[])
 {
-	char	*arg    = NULL;
+	char	*fname  = NULL;
+	char	*lnarg  = NULL;
 	int	 lineno = 0;
 	int	 opt;
 	int	 debug  = 0;
@@ -3108,22 +3109,27 @@ main(int argc, char *argv[])
 	init_editor();
 
 	if (argc > 0) {
-		open_file(argv[0]);
+		fname = argv[0];
 	}
 
 	if (argc > 1) {
-		arg = argv[1];
-		if (arg[0] == '+') {
-			arg++;
+		lnarg = argv[0];
+		fname = argv[1];
+		if (lnarg[0] == '+') {
+			lnarg++;
 		}
-		lineno = atoi(arg);
+		lineno = atoi(lnarg);
 		jump = 0;
+	}
+
+	if (fname != NULL) {
+		open_file(fname);
 	}
 
 	editor_set_status("C-k q to exit / C-k d to dump core");
 	if (jump) {
 		if (lineno < 1) {
-			editor_set_status("Invalid line number %s", arg);
+			editor_set_status("Invalid line number %s", lnarg);
 		} else {
 			jump_to_position(0, lineno - 1);
 		}
