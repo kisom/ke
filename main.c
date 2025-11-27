@@ -85,7 +85,7 @@ struct abuf {
 
 
 /* editor row */
-struct erow {
+typedef struct erow {
 	char	*line;
 	char	*render;
 
@@ -94,7 +94,7 @@ struct erow {
 
 	int	 cap;
 	int	 dirty;
-};
+} erow;
 
 
 /*
@@ -109,8 +109,8 @@ struct editor_t {
 	int		 mode;
 	int		 nrows;
 	int		 rowoffs, coloffs;
-	struct erow	*row;
-	struct erow	*killring;
+	erow		*row;
+	erow		*killring;
 	int		 kill;    /* KILL CHAIN (sounds metal) */
 	int		 no_kill; /* don't kill in delete_row */
 	char		*filename;
@@ -162,12 +162,12 @@ char		 nibble_to_hex(char c);
 void		 swap_int(int *a, int *b);
 
 /* editor rows */
-int		 erow_render_to_cursor(struct erow *row, int cx);
-int		 erow_cursor_to_render(struct erow *row, int rx);
-int		 erow_init(struct erow *row, int len);
-void		 erow_update(struct erow *row);
+int		 erow_render_to_cursor(erow *row, int cx);
+int		 erow_cursor_to_render(erow *row, int rx);
+int		 erow_init(erow *row, int len);
+void		 erow_update(erow *row);
 void		 erow_insert(int at, char *s, int len);
-void		 erow_free(struct erow *row);
+void		 erow_free(erow *row);
 
 
 /* kill ring, marking, etc... */
@@ -196,8 +196,8 @@ void		 delete_next_word(void);
 void		 find_prev_word(void);
 void		 delete_prev_word(void);
 void		 delete_row(int at);
-void		 row_insert_ch(struct erow *row, int at, int16_t c);
-void		 row_delete_ch(struct erow *row, int at);
+void		 row_insert_ch(erow *row, int at, int16_t c);
+void		 row_delete_ch(erow *row, int at);
 void		 insertch(int16_t c);
 void		 deletech(uint8_t op);
 void		 open_file(const char *filename);
@@ -210,7 +210,7 @@ void		 editor_find_callback(char *query, int16_t c);
 void		 editor_find(void);
 char		*editor_prompt(char*, void (*cb)(char*, int16_t));
 void		 editor_openfile(void);
-int		 first_nonwhitespace(struct erow *row);
+int		 first_nonwhitespace(erow *row);
 void		 move_cursor_once(int16_t c, int interactive);
 void		 move_cursor(int16_t c, int interactive);
 void		 uarg_start(void);
@@ -482,7 +482,7 @@ swap_int(int *a, int *b)
 
 
 int
-erow_render_to_cursor(struct erow *row, int cx)
+erow_render_to_cursor(erow *row, int cx)
 {
 	int		 rx = 0;
 	size_t		 j = 0;
@@ -543,7 +543,7 @@ erow_render_to_cursor(struct erow *row, int cx)
 
 
 int
-erow_cursor_to_render(struct erow *row, int rx)
+erow_cursor_to_render(erow *row, int rx)
 {
 	int		 cur_rx = 0;
 	size_t		 j = 0;
@@ -602,7 +602,7 @@ erow_cursor_to_render(struct erow *row, int rx)
 
 
 int
-erow_init(struct erow *row, int len)
+erow_init(erow *row, int len)
 {
 	row->size = len;
 	row->rsize = 0;
@@ -623,7 +623,7 @@ erow_init(struct erow *row, int len)
 
 
 void
-erow_update(struct erow *row)
+erow_update(erow *row)
 {
 	int i = 0, j;
 	int tabs = 0;
@@ -673,7 +673,7 @@ erow_update(struct erow *row)
 void
 erow_insert(int at, char *s, int len)
 {
-	struct erow	row;
+	erow	row;
 
 	if (at < 0 || at > editor.nrows) {
 		return;
@@ -684,13 +684,13 @@ erow_insert(int at, char *s, int len)
 	row.line[len] = 0;
 
 	editor.row = realloc(editor.row,
-	                     sizeof(struct erow) * (editor.nrows + 1));
+	                     sizeof(erow) * (editor.nrows + 1));
 	assert(editor.row != NULL);
 
 	if (at < editor.nrows) {
 		memmove(&editor.row[at + 1],
 		        &editor.row[at],
-		        sizeof(struct erow) * (editor.nrows - at));
+		        sizeof(erow) * (editor.nrows - at));
 	}
 
 	editor.row[at] = row;
@@ -700,7 +700,7 @@ erow_insert(int at, char *s, int len)
 
 
 void
-erow_free(struct erow *row)
+erow_free(erow *row)
 {
 	free(row->render);
 	free(row->line);
@@ -745,7 +745,7 @@ killring_yank(void)
 void
 killring_start_with_char(unsigned char ch)
 {
-	struct erow *row = NULL;
+	erow *row = NULL;
 
 	if (editor.killring != NULL) {
 		erow_free(editor.killring);
@@ -753,7 +753,7 @@ killring_start_with_char(unsigned char ch)
 		editor.killring = NULL;
 	}
 
-	editor.killring = malloc(sizeof(struct erow));
+	editor.killring = malloc(sizeof(erow));
 	assert(editor.killring != NULL);
 	assert(erow_init(editor.killring, 0) == 0);
 
@@ -772,7 +772,7 @@ killring_start_with_char(unsigned char ch)
 void
 killring_append_char(unsigned char ch)
 {
-	struct erow *row = NULL;
+	erow *row = NULL;
 
 	if (editor.killring == NULL) {
 		killring_start_with_char(ch);
@@ -797,7 +797,7 @@ killring_prepend_char(unsigned char ch)
 		return;
 	}
 
-	struct erow *row = editor.killring;
+	erow *row = editor.killring;
 	row->line = realloc(row->line, row->size + 2);
 	assert(row->line != NULL);
 	memmove(&row->line[1], &row->line[0], row->size + 1);
@@ -965,8 +965,8 @@ indent_region(void)
 void
 unindent_region(void)
 {
-	int		 start_row, end_row, i, del;
-	struct erow	*row;
+	int	 start_row, end_row, i, del;
+	erow	*row;
 
 	if (!editor.mark_set) {
 		editor_set_status("Mark not set.");
@@ -1291,6 +1291,8 @@ delete_prev_word(void)
 void
 delete_row(int at)
 {
+	erow	*row = NULL;
+
 	if (at < 0 || at >= editor.nrows) {
 		return;
 	}
@@ -1302,21 +1304,21 @@ delete_row(int at)
 	 * newline itself and we must NOT also push the entire row here.
 	 */
 	if (!editor.no_kill) {
-		struct erow *r = &editor.row[at];
+		row = &editor.row[at];
 		/* Start or continue the kill sequence based on editor.killing */
-		if (r->size > 0) {
+		if (row->size > 0) {
 			/* push raw bytes of the line */
 			if (!editor.kill) {
 				killring_start_with_char(
-					(unsigned char)r->line[0]);
-				for (int i = 1; i < r->size; i++) {
+					(unsigned char)row->line[0]);
+				for (int i = 1; i < row->size; i++) {
 					killring_append_char(
-						(unsigned char)r->line[i]);
+						(unsigned char)row->line[i]);
 				}
 			} else {
-				for (int i = 0; i < r->size; i++) {
+				for (int i = 0; i < row->size; i++) {
 					killring_append_char(
-						(unsigned char)r->line[i]);
+						(unsigned char)row->line[i]);
 				}
 			}
 			killring_append_char('\n');
@@ -1334,14 +1336,14 @@ delete_row(int at)
 	erow_free(&editor.row[at]);
 	memmove(&editor.row[at],
 	        &editor.row[at + 1],
-	        sizeof(struct erow) * (editor.nrows - at - 1));
+	        sizeof(erow) * (editor.nrows - at - 1));
 	editor.nrows--;
 	editor.dirty++;
 }
 
 
 void
-row_append_row(struct erow *row, char *s, int len)
+row_append_row(erow *row, char *s, int len)
 {
 	row->line = realloc(row->line, row->size + len + 1);
 	assert(row->line != NULL);
@@ -1354,7 +1356,7 @@ row_append_row(struct erow *row, char *s, int len)
 
 
 void
-row_insert_ch(struct erow *row, int at, int16_t c)
+row_insert_ch(erow *row, int at, int16_t c)
 {
 	/*
 	 * row_insert_ch just concerns itself with how to update a row.
@@ -1375,7 +1377,7 @@ row_insert_ch(struct erow *row, int at, int16_t c)
 
 
 void
-row_delete_ch(struct erow *row, int at)
+row_delete_ch(erow *row, int at)
 {
 	if (at < 0 || at >= row->size) {
 		return;
@@ -1415,7 +1417,7 @@ insertch(int16_t c)
 void
 deletech(uint8_t op)
 {
-	struct erow	*row = NULL;
+	erow		*row = NULL;
 	unsigned char	 dch = 0;
 	int		 prev = 0;
 
@@ -1791,7 +1793,7 @@ editor_find_callback(char* query, int16_t c)
 	static int	 last_match = -1;       /* row index of last match */
 	static int	 direction = 1;         /* 1 = forward, -1 = backward */
 	static char	 last_query[128] = {0}; /* remember last successful query */
-	struct erow	*row;
+	erow		*row;
 	int		 saved_cx = editor.curx;
 	int		 saved_cy = editor.cury;
 	size_t		 qlen = strlen(query);
@@ -1920,7 +1922,7 @@ editor_openfile(void)
 
 
 int
-first_nonwhitespace(struct erow *row)
+first_nonwhitespace(erow *row)
 {
 	int		 pos;
 	wchar_t		 wc;
@@ -1969,8 +1971,8 @@ first_nonwhitespace(struct erow *row)
 void
 move_cursor_once(int16_t c, int interactive)
 {
-	struct erow	*row;
-	int		 reps = 0;
+	erow	*row;
+	int	 reps = 0;
 
 	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
 
@@ -2089,7 +2091,7 @@ move_cursor(int16_t c, int interactive)
 void
 newline(void)
 {
-	struct erow *row = NULL;
+	erow	*row = NULL;
 
 	if (editor.cury >= editor.nrows) {
 		erow_insert(editor.cury, "", 0);
@@ -2705,10 +2707,10 @@ draw_rows(struct abuf *ab)
 {
 	assert(editor.cols >= 0);
 
-	struct erow	*row;
-	char		 buf[editor.cols];
-	int		 len, filerow, padding;
-	int		 y;
+	erow	*row;
+	char	 buf[editor.cols];
+	int	 len, filerow, padding;
+	int	 y;
 
 	for (y = 0; y < editor.rows; y++) {
 		filerow = y + editor.rowoffs;
@@ -2841,7 +2843,8 @@ draw_message_line(struct abuf *ab)
 void
 scroll(void)
 {
-	struct erow	*row = NULL;
+	erow	*row = NULL;
+
 	editor.rx = 0;
 	if (editor.cury < editor.nrows) {
 		row = &editor.row[editor.cury];
