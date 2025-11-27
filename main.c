@@ -2550,7 +2550,7 @@ process_escape(int16_t c)
 	case BACKSPACE:
 		reps = uarg_get();
 
-		while (--reps) {
+		while (reps--) {
 			delete_prev_word();
 		}
 		break;
