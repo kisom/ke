@@ -101,7 +101,7 @@ typedef struct erow {
  * editor is the global editor state; it should be broken out
  * to buffers and screen state, probably.
  */
-struct editor_t {
+struct editor {
 	struct termios	 entry_term;
 	int		 rows, cols;
 	int		 curx, cury;
