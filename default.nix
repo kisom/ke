@@ -8,9 +8,7 @@
 let
   cmakeContent = builtins.readFile ./CMakeLists.txt;
   cmakeLines = lib.splitString "\n" cmakeContent;
-  # Find the line containing set(KE_VERSION "...")
   versionLine = lib.findFirst (l: builtins.match ".*set\\(KE_VERSION \".+\"\\).*" l != null) (throw "KE_VERSION not found in CMakeLists.txt") cmakeLines;
-  # Extract the version number
   version = builtins.head (builtins.match ".*set\\(KE_VERSION \"(.+)\"\\).*" versionLine);
 in
 stdenv.mkDerivation {
