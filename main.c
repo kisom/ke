@@ -212,6 +212,7 @@ void		 editor_find_callback(char *query, int16_t c);
 void		 editor_find(void);
 char		*editor_prompt(char*, void (*cb)(char*, int16_t));
 void		 editor_openfile(void);
+int		 first_nonwhitespace(struct erow *row);
 void		 move_cursor_once(int16_t c, int interactive);
 void		 move_cursor(int16_t c, int interactive);
 void		 uarg_start(void);
@@ -507,6 +508,12 @@ erow_render_to_cursor(struct erow *row, int cx)
 			continue;
 		}
 
+		if (b < 0x80) {
+			rx++;
+			j++;
+			continue;
+		}
+
 		size_t rem = (size_t)row->size - j;
 		size_t n = mbrtowc(&wc, &row->line[j], rem, &st);
 
@@ -559,6 +566,9 @@ erow_cursor_to_render(struct erow *row, int rx)
 			/* tabs are single byte */
 		} else if (b < 0x20) {
 			w = 3; /* "\\xx" */
+			adv = 1;
+		} else if (b < 0x80) {
+			w = 1;
 			adv = 1;
 		} else {
 			size_t rem = (size_t)row->size - j;
@@ -1928,6 +1938,14 @@ first_nonwhitespace(struct erow *row)
 	}
 
 	while (pos < row->size) {
+		if ((unsigned char)row->line[pos] < 0x80) {
+			if (!isspace((unsigned char)row->line[pos])) {
+				return pos;
+			}
+			pos++;
+			continue;
+		}
+
 		len = mbrtowc(&wc, &row->line[pos], row->size - pos, &state);
 		if (len == (size_t)-1 || len == (size_t)-2) {
 			break;
@@ -2875,7 +2893,7 @@ display_refresh(void)
 	         (editor.rx - editor.coloffs) + 1);
 	ab_append(&ab, buf, kstrnlen(buf, 32));
 	/* ab_append(&ab, ESCSEQ "1;2H", 7); */
-	ab_append(&ab, ESCSEQ "?25l", 6);
+	ab_append(&ab, ESCSEQ "?25h", 6);
 
 	kwrite(STDOUT_FILENO, ab.b, ab.len);
 	ab_free(&ab);
