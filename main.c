@@ -2918,6 +2918,15 @@ kbhit(void)
 {
 	int	 bytes_waiting;
 	ioctl(STDIN_FILENO, FIONREAD, &bytes_waiting);
+
+	if (bytes_waiting < 0) {
+		editor_set_status("kbhit: FIONREAD failed: %s", strerror(errno));
+
+		/* if FIONREAD fails, we need to assume we should read. this
+		 * will default to a much slower input sequence, but it'll work.
+		 */
+		return 1;
+	}
 	return bytes_waiting > 0;
 }
 
