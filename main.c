@@ -97,6 +97,30 @@ typedef struct erow {
 } erow;
 
 
+typedef enum undo_kind {
+	UNDO_INSERT  = 1 << 0,
+	UNDO_UNKNOWN = 1 << 1,
+} undo_kind;
+
+
+typedef struct undo_node {
+	undo_kind		 op;
+	size_t			 row, col;
+	abuf			 text;
+
+	struct undo_node	*next;
+	struct undo_node	*parent;
+
+} undo_node;
+
+
+typedef struct undo_tree {
+	undo_node	*root;		/* the start of the undo sequence */
+	undo_node	*current;	/* where we are currently at */
+	undo_node	*pending;	/* the current undo operations being built */
+} undo_tree;
+
+
 /*
  * editor is the global editor state; it should be broken out
  * to buffers and screen state, probably.
@@ -3053,10 +3077,11 @@ install_signal_handlers(void)
 int
 main(int argc, char *argv[])
 {
-	char	*arg;
+	char	*arg    = NULL;
 	int	 lineno = 0;
 	int	 opt;
-	int	 debug = 0;
+	int	 debug  = 0;
+	int	 jump   = 0;
 
 	install_signal_handlers();
 
@@ -3092,13 +3117,16 @@ main(int argc, char *argv[])
 			arg++;
 		}
 		lineno = atoi(arg);
+		jump = 0;
 	}
 
 	editor_set_status("C-k q to exit / C-k d to dump core");
-	if (lineno < 1) {
-		editor_set_status("Invalid line number %s", arg);
-	} else {
-		jump_to_position(0, lineno - 1);
+	if (jump) {
+		if (lineno < 1) {
+			editor_set_status("Invalid line number %s", arg);
+		} else {
+			jump_to_position(0, lineno - 1);
+		}
 	}
 
 	display_clear(NULL);
