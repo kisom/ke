@@ -19,3 +19,6 @@ Released under an ISC license.
 
 Started by following along with kilo:
     https://viewsourcecode.org/snaptoken/kilo/
+
+E.g., in the devlogs
+    https://log.wntrmute.dev/2020/02/20200207
