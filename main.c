@@ -75,11 +75,11 @@
 
 
 /* append buffer */
-struct abuf {
+typedef struct abuf {
 	char	*b;
 	size_t	 len;
 	size_t	 cap;
-};
+} abuf;
 
 #define ABUF_INIT		{NULL, 0, 0}
 
@@ -152,12 +152,12 @@ void		 reset_editor(void);
 int		 next_power_of_2(int n);
 int		 cap_growth(int cap, int sz);
 size_t		 kstrnlen(const char *buf, const size_t max);
-void		 ab_init(struct abuf *buf);
-void		 ab_appendch(struct abuf *buf, char c);
-void		 ab_append(struct abuf *buf, const char *s, size_t len);
-void		 ab_prependch(struct abuf *buf, char c);
-void		 ab_prepend(struct abuf *buf, const char *s, size_t len);
-void		 ab_free(struct abuf *buf);
+void		 ab_init(abuf *buf);
+void		 ab_appendch(abuf *buf, char c);
+void		 ab_append(abuf *buf, const char *s, size_t len);
+void		 ab_prependch(abuf *buf, char c);
+void		 ab_prepend(abuf *buf, const char *s, size_t len);
+void		 ab_free(abuf *buf);
 char		 nibble_to_hex(char c);
 void		 swap_int(int *a, int *b);
 
@@ -225,13 +225,13 @@ int		 process_keypress(void);
 char		*get_cloc_code_lines(const char *filename);
 int		 dump_pidfile(void);
 void		 enable_termraw(void);
-void		 display_clear(struct abuf *ab);
+void		 display_clear(abuf *ab);
 void		 disable_termraw(void);
 void		 setup_terminal(void);
-void		 draw_rows(struct abuf *ab);
+void		 draw_rows(abuf *ab);
 char		 status_mode_char(void);
-void		 draw_status_bar(struct abuf *ab);
-void		 draw_message_line(struct abuf *ab);
+void		 draw_status_bar(abuf *ab);
+void		 draw_message_line(abuf *ab);
 void		 scroll(void);
 void		 display_refresh(void);
 void		 editor_set_status(const char *fmt, ...);
@@ -391,7 +391,7 @@ reset_editor(void)
 
 
 void
-ab_init(struct abuf *buf)
+ab_init(abuf *buf)
 {
 	buf->b = NULL;
 	buf->len = 0;
@@ -400,14 +400,14 @@ ab_init(struct abuf *buf)
 
 
 void
-ab_appendch(struct abuf *buf, char c)
+ab_appendch(abuf *buf, char c)
 {
 	ab_append(buf, &c, 1);
 }
 
 
 void
-ab_append(struct abuf *buf, const char *s, size_t len)
+ab_append(abuf *buf, const char *s, size_t len)
 {
 	char	*nc = buf->b;
 	size_t	 sz = buf->len + len;
@@ -431,14 +431,14 @@ ab_append(struct abuf *buf, const char *s, size_t len)
 
 
 void
-ab_prependch(struct abuf *buf, const char c)
+ab_prependch(abuf *buf, const char c)
 {
 	ab_prepend(buf, &c, 1);
 }
 
 
 void
-ab_prepend(struct abuf *buf, const char *s, const size_t len)
+ab_prepend(abuf *buf, const char *s, const size_t len)
 {
 	char	*nc = realloc(buf->b, buf->len + len);
 	assert(nc != NULL);
@@ -452,7 +452,7 @@ ab_prepend(struct abuf *buf, const char *s, const size_t len)
 
 
 void
-ab_free(struct abuf *buf)
+ab_free(abuf *buf)
 {
 	free(buf->b);
 	buf->b = NULL;
@@ -2668,7 +2668,7 @@ enable_termraw(void)
 
 
 void
-display_clear(struct abuf *ab)
+display_clear(abuf *ab)
 {
 	if (ab == NULL) {
 		kwrite(STDOUT_FILENO, ESCSEQ "2J", 4);
@@ -2703,7 +2703,7 @@ setup_terminal(void)
 
 
 void
-draw_rows(struct abuf *ab)
+draw_rows(abuf *ab)
 {
 	assert(editor.cols >= 0);
 
@@ -2775,7 +2775,7 @@ status_mode_char(void)
 
 
 void
-draw_status_bar(struct abuf *ab)
+draw_status_bar(abuf *ab)
 {
 	char status[editor.cols];
 	char rstatus[editor.cols];
@@ -2825,7 +2825,7 @@ draw_status_bar(struct abuf *ab)
 
 
 void
-draw_message_line(struct abuf *ab)
+draw_message_line(abuf *ab)
 {
 	int len = strlen(editor.msg);
 
@@ -2876,8 +2876,8 @@ scroll(void)
 void
 display_refresh(void)
 {
-	char buf[32];
-	struct abuf ab = ABUF_INIT;
+	char	 buf[32];
+	abuf	 ab = ABUF_INIT;
 
 	scroll();
 
