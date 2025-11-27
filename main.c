@@ -1130,7 +1130,6 @@ jump_to_position(int col, int row)
 	editor.curx = col;
 	editor.cury = row;
 
-	scroll();
 	display_refresh();
 }
 
@@ -2323,8 +2322,10 @@ process_kcommand(int16_t c)
 		reset_editor();
 		open_file(buf);
 		display_refresh();
+		free(buf);
 
 		jump_to_position(jumpx, jumpy);
+		editor_set_status("file reloaded");
 		break;
 	case CTRL_KEY('s'):
 	case 's':
@@ -2469,6 +2470,8 @@ process_normal(int16_t c)
 void
 process_escape(int16_t c)
 {
+	int	 reps = 0;
+
 	editor_set_status("hi");
 
 	switch (c) {
@@ -2481,13 +2484,25 @@ process_escape(int16_t c)
 		editor.curx = 0;
 		break;
 	case 'b':
-		find_prev_word();
+		reps = uarg_get();
+
+		while (reps--) {
+			find_prev_word();
+		}
 		break;
 	case 'd':
-		delete_next_word();
+		reps = uarg_get();
+
+		while (reps--) {
+			delete_next_word();
+		}
 		break;
 	case 'f':
-		find_next_word();
+		reps = uarg_get();
+
+		while (reps--) {
+			find_next_word();
+		}
 		break;
 	case 'm':
 		toggle_markset();
@@ -2501,7 +2516,11 @@ process_escape(int16_t c)
 		toggle_markset();
 		break;
 	case BACKSPACE:
-		delete_prev_word();
+		reps = uarg_get();
+
+		while (--reps) {
+			delete_prev_word();
+		}
 		break;
 	case ESC_KEY:
 	case CTRL_KEY('g'):
@@ -2509,6 +2528,8 @@ process_escape(int16_t c)
 	default:
 		editor_set_status("unknown ESC key: %04x", c);
 	}
+
+	uarg_clear();
 }
 
 
@@ -3032,8 +3053,10 @@ install_signal_handlers(void)
 int
 main(int argc, char *argv[])
 {
-	int opt;
-	int debug = 0;
+	char	*arg;
+	int	 lineno = 0;
+	int	 opt;
+	int	 debug = 0;
 
 	install_signal_handlers();
 
@@ -3063,7 +3086,20 @@ main(int argc, char *argv[])
 		open_file(argv[0]);
 	}
 
+	if (argc > 1) {
+		arg = argv[1];
+		if (arg[0] == '+') {
+			arg++;
+		}
+		lineno = atoi(arg);
+	}
+
 	editor_set_status("C-k q to exit / C-k d to dump core");
+	if (lineno < 1) {
+		editor_set_status("Invalid line number %s", arg);
+	} else {
+		jump_to_position(0, lineno - 1);
+	}
 
 	display_clear(NULL);
 	loop();
