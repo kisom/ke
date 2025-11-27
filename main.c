@@ -2393,7 +2393,9 @@ process_kcommand(int16_t c)
 void
 process_normal(int16_t c)
 {
-	int	reps = 0;
+	int	 cols = 0;
+	int	 rows = 0;
+	int	 reps = 0;
 
 	/* C-u handling – must be the very first thing */
 	if (c == CTRL_KEY('u')) {
@@ -2449,6 +2451,12 @@ process_normal(int16_t c)
 	case CTRL_KEY('g'):
 		break;
 	case CTRL_KEY('l'):
+		if (get_winsz(&rows, &cols) == 0) {
+			editor.rows = rows;
+			editor.cols = cols;
+		} else {
+			editor_set_status("Couldn't update window size.");
+		}
 		display_refresh();
 		break;
 	case CTRL_KEY('s'):
@@ -3120,8 +3128,6 @@ main(int argc, char *argv[])
 		}
 		lineno = atoi(lnarg);
 		jump = 1;
-		fprintf(stderr, "fname: %s\nlnarg: %s\nlineno: %d\n",
-			fname, lnarg, lineno);
 	}
 
 	if (fname != NULL) {
