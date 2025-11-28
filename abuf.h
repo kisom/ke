@@ -1,8 +1,8 @@
 /*
  * abuf.h - append/prepend buffer utilities
  */
-#ifndef ABUF_H
-#define ABUF_H
+#ifndef KE_ABUF_H
+#define KE_ABUF_H
 
 #include <stddef.h>
 

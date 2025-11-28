@@ -71,16 +71,16 @@ setup_terminal(void)
 
 
 int
-get_winsz(int *rows, int *cols)
+get_winsz(size_t *rows, size_t *cols)
 {
-	struct winsize ws;
+    struct winsize ws;
 
-	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
-		return -1;
-	}
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+        return -1;
+    }
 
-	*cols = ws.ws_col;
-	*rows = ws.ws_row;
+    *cols = (size_t)ws.ws_col;
+    *rows = (size_t)ws.ws_row;
 
-	return 0;
+    return 0;
 }

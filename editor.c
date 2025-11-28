@@ -16,31 +16,20 @@
  * Global editor instance
  */
 struct editor editor = {
-	.cols = 0,
-	.rows = 0,
-	.curx = 0,
-	.cury = 0,
-	.rx = 0,
-	.mode = 0,
-	.nrows = 0,
-	.rowoffs = 0,
-	.coloffs = 0,
-	.row = NULL,
+    .cols = 0,
+	.rows     = 0,
+	.mode     = 0,
 	.killring = NULL,
-	.kill = 0,
-	.no_kill = 0,
-	.filename = NULL,
-	.dirty = 0,
-	.dirtyex = 0,
-	.mark_set = 0,
-	.mark_curx = 0,
-	.mark_cury = 0,
-	.uarg = 0,
-	.ucount = 0,
-	.msgtm = 0,
-	.buffers = NULL,
+	.kill     = 0,
+	.no_kill  = 0,
+	.dirtyex  = 0,
+	.uarg     = 0,
+	.ucount   = 0,
+	.msgtm    = 0,
+	.buffers  = NULL,
 	.bufcount = 0,
-	.curbuf = -1,
+	.curbuf   = 0,
+	.bufcap   = 0,
 };
 
 
@@ -69,26 +58,15 @@ init_editor(void)
 	editor.rows--; /* status bar */
 	editor.rows--; /* message line */
 
-	editor.curx = editor.cury = 0;
-	editor.rx   = 0;
-
-	editor.nrows   = 0;
-	editor.rowoffs = editor.coloffs = 0;
-	editor.row     = NULL;
-
 	/* don't clear out the kill ring:
 	 * killing / yanking across files is helpful, and killring
 	 * is initialized to NULL at program start.
 	 */
-	editor.kill    = 0;
+	editor.kill = 0;
 	editor.no_kill = 0;
 
 	editor.msg[0] = '\0';
-	editor.msgtm  = 0;
-
-	editor.dirty     = 0;
-	editor.mark_set  = 0;
-	editor.mark_cury = editor.mark_curx = 0;
+	editor.msgtm = 0;
 
 	/* initialize buffer system on first init */
 	if (editor.buffers == NULL && editor.bufcount == 0) {
@@ -101,25 +79,31 @@ init_editor(void)
 void
 reset_editor(void)
 {
-	/* Clear current working set. Notably, does not reset terminal
-	 * or buffers list. */
-	for (int i = 0; i < editor.nrows; i++) {
-		ab_free(&editor.row[i]);
-	}
-	free(editor.row);
-
-	editor.row     = NULL;
-	editor.nrows   = 0;
-	editor.rowoffs = editor.coloffs = 0;
-	editor.curx    = editor.cury    = 0;
-	editor.rx      = 0;
-
-	if (editor.filename != NULL) {
-		free(editor.filename);
-		editor.filename = NULL;
+	/* Reset the current buffer's contents/state. */
+	buffer *b = buffer_current();
+	if (b == NULL) {
+		return;
 	}
 
-	editor.dirty     = 0;
-	editor.mark_set  = 0;
-	editor.mark_cury = editor.mark_curx = 0;
+	if (b->row) {
+		for (size_t i = 0; i < b->nrows; i++) {
+			ab_free(&b->row[i]);
+		}
+		free(b->row);
+	}
+	b->row = NULL;
+	b->nrows = 0;
+	b->rowoffs = 0;
+	b->coloffs = 0;
+	b->rx = 0;
+	b->curx = 0;
+	b->cury = 0;
+	if (b->filename) {
+		free(b->filename);
+		b->filename = NULL;
+	}
+	b->dirty = 0;
+	b->mark_set = 0;
+	b->mark_curx = 0;
+	b->mark_cury = 0;
 }

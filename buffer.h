@@ -1,19 +1,19 @@
-#ifndef BUFFER_H
-#define BUFFER_H
+#ifndef KE_BUFFER_H
+#define KE_BUFFER_H
 
 #include "abuf.h"
 
 
 typedef struct buffer {
-	int	 curx, cury;
-	int	 rx;
-	int	 nrows;
-	int	 rowoffs, coloffs;
+	size_t	 curx, cury;
+	size_t	 rx;
+	size_t	 nrows;
+	size_t	 rowoffs, coloffs;
 	abuf	*row;
 	char	*filename;
 	int	 dirty;
 	int	 mark_set;
-	int	 mark_curx, mark_cury;
+	size_t	 mark_curx, mark_cury;
 } buffer;
 
 /* Access current buffer and convenient aliases for file-specific fields */

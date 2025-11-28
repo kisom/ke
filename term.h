@@ -1,5 +1,5 @@
-#ifndef TERM_H
-#define TERM_H
+#ifndef KE_TERM_H
+#define KE_TERM_H
 
 #include "abuf.h"
 
@@ -17,6 +17,6 @@ void display_clear(abuf *ab);
  * on this for now because it's bloaty and this works on OpenBSD and
  * Linux, at least.
  */
-int  get_winsz(int *rows, int *cols);
+int  get_winsz(size_t *rows, size_t *cols);
 
-#endif /* TERM_H */
+#endif /* KE_TERM_H */

@@ -35,19 +35,8 @@ strnstr(const char *s, const char *find, size_t slen)
 #endif
 
 
-char
-nibble_to_hex(char c)
-{
-	c &= 0xf;
-	if (c < 10) {
-		return (char)('0' + c);
-	}
-	return (char)('A' + (c - 10));
-}
-
-
 void
-swap_int(int *first, int *second)
+swap_size_t(size_t *first, size_t *second)
 {
 	*first ^= *second;
 	*second ^= *first;

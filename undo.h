@@ -1,5 +1,11 @@
-#ifndef KE_UNDO
-#define KE_UNDO
+#include <stddef.h>
+
+#include "abuf.h"
+#include "editor.h"
+
+
+#ifndef KE_UNDO_H
+#define KE_UNDO_H
 
 
 typedef enum undo_kind {
@@ -9,7 +15,7 @@ typedef enum undo_kind {
 
 
 typedef struct undo_node {
-	undo_kind		 op;
+	undo_kind		 kind;
 	size_t			 row, col;
 	abuf			 text;
 
@@ -31,14 +37,14 @@ void		 undo_node_free(undo_node *node);
 void		 undo_tree_init(undo_tree *tree);
 void		 undo_tree_free(undo_tree *tree);
 void		 undo_begin(undo_tree *tree, undo_kind kind);
-void		 undo_prepend(abuf *buf);
-void		 undo_append(buf *buf);
-void		 undo_prependch(char c);
-void		 undo_appendch(char c);
+void		 undo_prepend(undo_tree *tree, abuf *buf);
+void		 undo_append(undo_tree *tree, abuf *buf);
+void		 undo_prependch(undo_tree *tree, char c);
+void		 undo_appendch(undo_tree *tree, char c);
 void		 undo_commit(undo_tree *tree);
-void		 undo_apply(undo_node *node);
-void		 editor_undo(void);
-void		 editor_redo(void);
+void		 undo_apply(struct editor *editor);
+void		 editor_undo(undo_tree *tree);
+void		 editor_redo(undo_tree *tree);
 
 
 #endif

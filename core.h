@@ -4,7 +4,6 @@
 #include <stddef.h>
 
 
-#define		calloc1(sz)		calloc(1, sz)
 #define		INITIAL_CAPACITY	8
 
 
@@ -29,10 +28,9 @@ char	*strnstr(const char *s, const char *find, size_t slen);
 #define	INCLUDE_STRNSTR
 #endif
 
-char		 nibble_to_hex(char c);
-void		 swap_int(int *first, int *second);
-int		 next_power_of_2(int n);
-int		 cap_growth(int cap, int sz);
+void		 swap_size_t(size_t *first, size_t *second);
+int 		 next_power_of_2(int n);
+int 		 cap_growth(int cap, int sz);
 size_t		 kstrnlen(const char *buf, size_t max);
 void		 kwrite(int fd, const char *buf, int len);
 void		 die(const char *s);
