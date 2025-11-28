@@ -20,7 +20,14 @@ endif()
 include(GNUInstallDirs)
 
 # Add executable
-add_executable(ke main.c)
+add_executable(ke
+        main.c
+        abuf.c
+        term.c
+        buffer.c
+        core.c
+        core.h
+)
 target_compile_definitions(ke PRIVATE KE_VERSION="ke version ${KE_VERSION}")
 install(TARGETS ke RUNTIME DESTINATION bin)
 install(FILES ke.1 TYPE MAN)

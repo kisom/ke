@@ -11,8 +11,10 @@ LDFLAGS :=	-fsanitize=address
 
 all: $(TARGET) test.txt
 
-$(TARGET): main.c
-	$(CC) $(CFLAGS) -o $(TARGET) $(LDFLAGS) main.c
+SRCS := main.c abuf.c term.c buffer.c
+
+$(TARGET): $(SRCS)
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS) $(LDFLAGS)
 
 .PHONY: install
 #install: $(TARGET) 

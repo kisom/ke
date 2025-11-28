@@ -36,6 +36,13 @@
 #include <wchar.h>
 #include <wctype.h>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <limits.h>
+
+#include "abuf.h"
+#include "buffer.h"
+#include "core.h"
+#include "term.h"
 
 
 #ifndef KE_VERSION
@@ -71,46 +78,8 @@
 #define KILLRING_FLUSH		4	/* clear the killring */
 
 
-#define calloc1(sz)		calloc(1, sz)
-
-
-/* append buffer */
-typedef struct abuf {
-	char	*b;
-	size_t	 size;
-	size_t	 cap;
-} abuf;
-
-#define ABUF_INIT		{NULL, 0, 0}
-
-
-typedef enum undo_kind {
-	UNDO_INSERT  = 1 << 0,
-	UNDO_UNKNOWN = 1 << 1,
-} undo_kind;
-
-
-typedef struct undo_node {
-	undo_kind		 op;
-	size_t			 row, col;
-	abuf			 text;
-
-	struct undo_node	*next;
-	struct undo_node	*parent;
-
-} undo_node;
-
-
-typedef struct undo_tree {
-	undo_node	*root;		/* the start of the undo sequence */
-	undo_node	*current;	/* where we are currently at */
-	undo_node	*pending;	/* the current undo operations being built */
-} undo_tree;
-
-
 /*
- * editor is the global editor state; it should be broken out
- * to buffers and screen state, probably.
+ * editor is the global editor state.
  */
 struct editor {
 	struct termios	 entry_term;
@@ -132,6 +101,11 @@ struct editor {
 	int		 mark_curx, mark_cury;
 	int		 uarg, ucount; /* C-u support */
 	time_t		 msgtm;
+
+	/* Multi-buffer support */
+	struct buffer	**buffers;  /* buffer list */
+	int		 bufcount;  /* number of buffers */
+	int		 curbuf;    /* current buffer index */
 } editor = {
 	.cols = 0,
 	.rows = 0,
@@ -153,11 +127,16 @@ struct editor {
 	.mark_cury = 0,
 	.uarg = 0,
 	.ucount = 0,
+	.buffers = NULL,
+	.bufcount = 0,
+	.curbuf = -1,
 };
 
 
 void		 init_editor(void);
 void		 reset_editor(void);
+
+/* buffers now declared in buffer.h */
 
 /* small tools, abufs, etc */
 int		 next_power_of_2(int n);
@@ -165,11 +144,6 @@ int		 cap_growth(int cap, int sz);
 size_t		 kstrnlen(const char *buf, size_t max);
 void		 ab_init(abuf *buf);
 void		 ab_init_cap(abuf *buf, size_t cap);
-void		 ab_appendch(abuf *buf, char c);
-void		 ab_append(abuf *buf, const char *s, size_t len);
-void		 ab_prependch(abuf *buf, char c);
-void		 ab_prepend(abuf *buf, const char *s, size_t len);
-void		 ab_free(abuf *buf);
 char		 nibble_to_hex(char c);
 void		 swap_int(int *a, int *b);
 
@@ -189,7 +163,7 @@ void		 delete_region(void);
 /* miscellaneous */
 void		 kwrite(int fd, const char *buf, int len);
 void		 die(const char *s);
-int		 get_winsz(int *rows, int *cols);
+/* get_winsz now provided by term.h */
 void		 jump_to_position(int col, int row);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
@@ -226,10 +200,7 @@ void		 process_escape(int16_t c);
 int		 process_keypress(void);
 char		*get_cloc_code_lines(const char *filename);
 int		 dump_pidfile(void);
-void		 enable_termraw(void);
-void		 display_clear(abuf *ab);
-void		 disable_termraw(void);
-void		 setup_terminal(void);
+/* terminal functions declared in term.h */
 void		 draw_rows(abuf *ab);
 char		 status_mode_char(void);
 void		 draw_status_bar(abuf *ab);
@@ -242,34 +213,6 @@ void		 enable_debugging(void);
 void		 deathknell(void);
 static void	 signal_handler(int sig);
 static void	 install_signal_handlers(void);
-
-
-#ifndef strnstr
-/*
- * Find the first occurrence of find in s, where the search is limited to the
- * first slen characters of s.
- */
-char
-*strnstr(const char *s, const char *find, size_t slen)
-{
-	char c, sc;
-	size_t len;
-
-	if ((c = *find++) != '\0') {
-		len = strlen(find);
-		do {
-			do {
-				if (slen-- < 1 || (sc = *s++) == '\0')
-					return (NULL);
-			} while (sc != c);
-			if (len > slen)
-				return (NULL);
-		} while (strncmp(s, find, len) != 0);
-		s--;
-	}
-	return ((char*)s);
-}
-#endif
 
 
 int
@@ -303,22 +246,6 @@ cap_growth(int cap, int sz)
 
 	return cap;
 }
-
-
-enum KeyPress {
-	TAB_KEY = 9,
-	ESC_KEY = 27,
-	BACKSPACE = 127,
-	ARROW_LEFT = 1000,
-	ARROW_RIGHT,
-	ARROW_UP,
-	ARROW_DOWN,
-	DEL_KEY,
-	HOME_KEY,
-	END_KEY,
-	PG_UP,
-	PG_DN,
-};
 
 
 size_t
@@ -368,6 +295,11 @@ init_editor(void)
 	editor.dirty = 0;
 	editor.mark_set = 0;
 	editor.mark_cury = editor.mark_curx = 0;
+
+	/* initialize buffer system on first init */
+	if (editor.buffers == NULL && editor.bufcount == 0) {
+		buffers_init();
+	}
 }
 
 
@@ -377,27 +309,32 @@ init_editor(void)
 void
 reset_editor(void)
 {
+	/* Clear current working set (does not reset terminal or buffers list) */
 	for (int i = 0; i < editor.nrows; i++) {
 		ab_free(&editor.row[i]);
 	}
 	free(editor.row);
-
+	editor.row = NULL;
+	editor.nrows = 0;
+	editor.rowoffs = editor.coloffs = 0;
+	editor.curx = editor.cury = 0;
+	editor.rx = 0;
 	if (editor.filename != NULL) {
 		free(editor.filename);
 		editor.filename = NULL;
 	}
-
-
-	init_editor();
+	editor.dirty = 0;
+	editor.mark_set = 0;
+	editor.mark_cury = editor.mark_curx = 0;
 }
 
 
 void
 ab_init(abuf *buf)
 {
-	buf->b = NULL;
-	buf->size = 0;
-	buf->cap = 0;
+    buf->b = NULL;
+    buf->size = 0;
+    buf->cap = 0;
 }
 
 
@@ -413,73 +350,169 @@ ab_init_cap(abuf *buf, const size_t cap)
 void
 ab_resize(abuf *buf, size_t cap)
 {
-	cap = cap_growth(buf->cap, cap);
-	buf->b = realloc(buf->b, cap);
-	assert(buf->b != NULL);
-	buf->cap = cap;
+    cap = cap_growth(buf->cap, cap);
+    buf->b = realloc(buf->b, cap);
+    assert(buf->b != NULL);
+    buf->cap = cap;
 }
 
 
-void
-ab_appendch(abuf *buf, char c)
+/* Buffer management moved to buffer.c */
+
+/* =========================
+ * File open: TAB completion callback
+ * ========================= */
+static int path_is_dir(const char *path)
 {
-	ab_append(buf, &c, 1);
+    struct stat st;
+    if (path == NULL) return 0;
+    if (stat(path, &st) == 0) {
+        return S_ISDIR(st.st_mode);
+    }
+    return 0;
 }
 
-
-void
-ab_append(abuf *buf, const char *s, size_t len)
+static size_t str_lcp2(const char *a, const char *b)
 {
-	char	*nc = buf->b;
-	size_t	 sz = buf->size + len;
-
-	if (sz >= buf->cap) {
-		while (sz > buf->cap) {
-			if (buf->cap == 0) {
-				buf->cap = 1;
-			} else {
-				buf->cap *= 2;
-			}
-		}
-		nc = realloc(nc, buf->cap);
-		assert(nc != NULL);
-	}
-
-	memcpy(&nc[buf->size], s, len);
-	buf->b = nc;
-	buf->size += len;
+    if (!a || !b) return 0;
+    size_t i = 0;
+    while (a[i] && b[i] && a[i] == b[i]) i++;
+    return i;
 }
 
-
-void
-ab_prependch(abuf *buf, const char c)
+static void file_open_prompt_cb(char *buf, int16_t key)
 {
-	ab_prepend(buf, &c, 1);
+    if (key != TAB_KEY) return;
+
+    /* Determine directory and basename prefix */
+    char dirpath[PATH_MAX];
+    char base[256];
+    const char *slash = strrchr(buf, '/');
+    if (slash) {
+        size_t dlen = (size_t)(slash - buf);
+        if (dlen == 0) {
+            /* path like "/foo" -> dir is "/" */
+            strcpy(dirpath, "/");
+        } else {
+            if (dlen >= sizeof(dirpath)) dlen = sizeof(dirpath) - 1;
+            memcpy(dirpath, buf, dlen);
+            dirpath[dlen] = '\0';
+        }
+        strncpy(base, slash + 1, sizeof(base) - 1);
+        base[sizeof(base) - 1] = '\0';
+    } else {
+        strcpy(dirpath, ".");
+        strncpy(base, buf, sizeof(base) - 1);
+        base[sizeof(base) - 1] = '\0';
+    }
+
+    DIR *d = opendir(dirpath);
+    if (!d) {
+        editor_set_status("No such dir: %s", dirpath);
+        return;
+    }
+
+    /* Collect matches */
+    const char *names[128];
+    int isdir[128];
+    int n = 0;
+    size_t plen = strlen(base);
+
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        const char *name = de->d_name;
+        /* Skip . and .. */
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+        if (plen == 0 || strncmp(name, base, plen) == 0) {
+            if (n < 128) {
+                names[n] = strdup(name);
+                /* Build full path to test dir */
+                char full[PATH_MAX];
+                if (snprintf(full, sizeof(full), "%s/%s", dirpath, name) >= 0) {
+                    isdir[n] = path_is_dir(full);
+                } else {
+                    isdir[n] = 0;
+                }
+                n++;
+            }
+        }
+    }
+    closedir(d);
+
+    if (n == 0) {
+        editor_set_status("No file matches '%s' in %s", base, dirpath);
+        return;
+    }
+
+    /* Compute LCP across matches */
+    size_t lcp = strlen(names[0]);
+    for (int i = 1; i < n; i++) {
+        size_t k = str_lcp2(names[0], names[i]);
+        if (k < lcp) lcp = k;
+        if (lcp == 0) break;
+    }
+
+    /* Build new buffer string: dirpath + '/' (if not root and present) + completion */
+    char newbuf[PATH_MAX];
+    newbuf[0] = '\0';
+    if (slash) {
+        /* Preserve original directory portion including trailing slash */
+        size_t dlen = (size_t)(slash - buf);
+        if (dlen >= sizeof(newbuf)) dlen = sizeof(newbuf) - 1;
+        memcpy(newbuf, buf, dlen);
+        newbuf[dlen] = '\0';
+        strncat(newbuf, "/", sizeof(newbuf) - strlen(newbuf) - 1);
+    }
+
+    /* The part to append is: if unique -> full name (+ '/' if dir), else current base extended to LCP */
+    if (n == 1) {
+        strncat(newbuf, names[0], sizeof(newbuf) - strlen(newbuf) - 1);
+        if (isdir[0]) {
+            strncat(newbuf, "/", sizeof(newbuf) - strlen(newbuf) - 1);
+        }
+        /* Replace buffer */
+        strncpy(buf, newbuf[0] ? newbuf : names[0], 127);
+        buf[127] = '\0';
+        editor_set_status("Unique match: %s%s", names[0], isdir[0] ? "/" : "");
+    } else {
+        /* Extend to LCP */
+        char ext[256];
+        size_t cur = strlen(base);
+        if (lcp > cur) {
+            size_t to_copy = lcp - cur;
+            if (to_copy >= sizeof(ext)) to_copy = sizeof(ext) - 1;
+            memcpy(ext, names[0] + cur, to_copy);
+            ext[to_copy] = '\0';
+            /* Always start from current base prefix */
+            strncat(newbuf, base, sizeof(newbuf) - strlen(newbuf) - 1);
+            strncat(newbuf, ext, sizeof(newbuf) - strlen(newbuf) - 1);
+        } else {
+            /* No extension possible, keep base as-is */
+            strncat(newbuf, base, sizeof(newbuf) - strlen(newbuf) - 1);
+        }
+        strncpy(buf, newbuf, 127);
+        buf[127] = '\0';
+
+        /* Show candidates */
+        char msg[80];
+        size_t used = 0;
+        used += snprintf(msg + used, sizeof(msg) - used, "%d matches: ", n);
+        for (int i = 0; i < n && used < sizeof(msg) - 1; i++) {
+            used += snprintf(msg + used, sizeof(msg) - used, "%s%s%s",
+                             (i ? ", " : ""), names[i], isdir[i] ? "/" : "");
+        }
+        editor_set_status("%s", msg);
+    }
+
+    /* Free duplicated names */
+    for (int i = 0; i < n; i++) free((void*)names[i]);
 }
 
-
-void
-ab_prepend(abuf *buf, const char *s, const size_t len)
-{
-	char	*nc = realloc(buf->b, buf->size + len);
-	assert(nc != NULL);
-
-	memmove(nc + len, nc, buf->size);
-	memcpy(nc, s, len);
-
-	buf->b = nc;
-	buf->size += len;
-}
+/* Close the current buffer. If dirty, require confirmation (press C-k c twice) */
+/* buffer_close_current now implemented in buffer.c */
 
 
-void
-ab_free(abuf *buf)
-{
-	free(buf->b);
-	buf->b = NULL;
-	buf->size = 0;
-	buf->cap = 0;
-}
+/* abuf implementations moved to abuf.c */
 
 
 char
@@ -1002,55 +1035,6 @@ delete_region(void)
 
 
 void
-kwrite(const int fd, const char* buf, const int len)
-{
-	int wlen = 0;
-
-	wlen = write(fd, buf, len);
-	assert(wlen != -1);
-	assert(wlen == len);
-	if (wlen == -1) {
-		abort();
-	}
-}
-
-
-void
-die(const char* s)
-{
-	kwrite(STDOUT_FILENO, "\x1b[2J", 4);
-	kwrite(STDOUT_FILENO, "\x1b[H", 3);
-
-	perror(s);
-	exit(1);
-}
-
-
-/*
- * get_winsz uses the TIOCGWINSZ to get the window size.
- *
- * there's a fallback way to do this, too, that involves moving the
- * cursor down and to the left \x1b[999C\x1b[999B. I'm going to skip
- * on this for now because it's bloaty and this works on OpenBSD and
- * Linux, at least.
- */
-int
-get_winsz(int *rows, int *cols)
-{
-	struct winsize ws;
-
-	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 ||
-		ws.ws_col == 0) {
-		return -1;
-	}
-
-	*cols = ws.ws_col;
-	*rows = ws.ws_row;
-	return 0;
-}
-
-
-void
 jump_to_position(int col, int row)
 {
 	/* clamp position */
@@ -1556,7 +1540,7 @@ save_exit:
 uint16_t
 is_arrow_key(int16_t c)
 {
-	switch (c) {
+ switch (c) {
 	case ARROW_DOWN:
 	case ARROW_LEFT:
 	case ARROW_RIGHT:
@@ -1669,48 +1653,57 @@ char
 
 	buf[0] = '\0';
 
-	while (1) {
-		editor_set_status(prompt, buf);
-		display_refresh();
+ while (1) {
+        editor_set_status(prompt, buf);
+        display_refresh();
 
-		while ((c = get_keypress()) <= 0);
-		if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
-			if (buflen != 0) {
-				buf[--buflen] = '\0';
-			}
-		} else if (c == ESC_KEY || c == CTRL_KEY('g')) {
-			editor_set_status("");
-			if (cb) {
-				cb(buf, c);
-			}
+        while ((c = get_keypress()) <= 0);
+        if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
+            if (buflen != 0) {
+                buf[--buflen] = '\0';
+            }
+        } else if (c == ESC_KEY || c == CTRL_KEY('g')) {
+            editor_set_status("");
+            if (cb) {
+                cb(buf, c);
+            }
 
-			free(buf);
-			return NULL;
-		} else if (c == '\r') {
-			if (buflen != 0) {
-				editor_set_status("");
-				if (cb) {
-					cb(buf, c);
-				}
+            free(buf);
+            return NULL;
+        } else if (c == '\r') {
+            if (buflen != 0) {
+                editor_set_status("");
+                if (cb) {
+                    cb(buf, c);
+                }
 
-				return buf;
-			}
-		} else if ((c == TAB_KEY) || (c >= 0x20 && c < 0x7f)) {
-			if (buflen == bufsz - 1) {
-				bufsz *= 2;
-				buf = realloc(buf, bufsz);
+                return buf;
+            }
+        } else if (c == TAB_KEY) {
+            /* invoke completion callback without inserting a TAB */
+            if (cb) {
+                cb(buf, c);
+            }
+            /* keep buflen in sync in case callback edited buf */
+            buflen = strlen(buf);
+        } else if (c >= 0x20 && c < 0x7f) {
+            if (buflen == bufsz - 1) {
+                bufsz *= 2;
+                buf = realloc(buf, bufsz);
 
-				assert(buf != NULL);
-			}
+                assert(buf != NULL);
+            }
 
-			buf[buflen++] = (char)(c & 0xff);
-			buf[buflen] = '\0';
-		}
+            buf[buflen++] = (char)(c & 0xff);
+            buf[buflen] = '\0';
+        }
 
-		if (cb) {
-			cb(buf, c);
-		}
-	}
+        if (cb) {
+            cb(buf, c);
+            /* keep buflen in sync with any changes the callback made */
+            buflen = strlen(buf);
+        }
+    }
 
 	free(buf);
 	return NULL;
@@ -1841,16 +1834,20 @@ editor_find(void)
 void
 editor_openfile(void)
 {
-	char *filename;
+    char *filename;
 
-	/* TODO(kyle): combine with dirutils for tab-completion */
-	filename = editor_prompt("Load file: %s", NULL);
-	if (filename == NULL) {
-		return;
-	}
+    /* Add TAB completion for path input */
+    filename = editor_prompt("Load file: %s", file_open_prompt_cb);
+    if (filename == NULL) {
+        return;
+    }
 
-	open_file(filename);
-	free(filename);
+    /* Open into a new buffer */
+    int nb = buffer_add_empty();
+    buffer_switch(nb);
+    open_file(filename);
+    buffer_save_current();
+    free(filename);
 }
 
 
@@ -2156,9 +2153,8 @@ process_kcommand(int16_t c)
 		editor_set_status("Jumped to mark");
 		break;
 	case 'c':
-		len = editor.killring->size;
-		killring_flush();
-		editor_set_status("Kill ring cleared (%d characters)", len);
+		/* Close current buffer (was kill ring clear; that moved to C-k f) */
+		buffer_close_current();
 		break;
 	case 'd':
 		if (editor.curx == 0 && cursor_at_eol()) {
@@ -2196,8 +2192,21 @@ process_kcommand(int16_t c)
 		}
 		editor_openfile();
 		break;
-	case 'f':
-		editor_find();
+	case 'f': {
+		/* Rebound: clear kill ring on C-k f */
+		len = editor.killring ? (int)editor.killring->size : 0;
+		killring_flush();
+		editor_set_status("Kill ring cleared (%d characters)", len);
+		break;
+	}
+	case 'n':
+		buffer_next();
+		break;
+	case 'p':
+		buffer_prev();
+		break;
+	case 'b':
+		buffer_switch_by_name();
 		break;
 	case 'g':
 		goto_line();
@@ -2510,11 +2519,11 @@ process_keypress(void)
 char
 *get_cloc_code_lines(const char *filename)
 {
-	char command[512];
-	char buffer[256];
-	char *result = NULL;
-	FILE* pipe = NULL;
-	size_t len = 0;
+	char	 command[512];
+	char	 outbuf[256];
+	char	*result = NULL;
+	FILE	*pipe = NULL;
+	size_t	 len = 0;
 
 	if (editor.filename == NULL) {
 		snprintf(command, sizeof(command),
@@ -2542,20 +2551,20 @@ char
 	pipe = popen(command, "r");
 	if (!pipe) {
 		snprintf(command, sizeof(command), "Error getting LOC: %s", strerror(errno));
-		result = (char*)malloc(sizeof(buffer) + 1);
+		result = (char*)malloc(sizeof(outbuf) + 1);
 		return NULL;
 	}
 
-	if (fgets(buffer, sizeof(buffer), pipe) != NULL) {
-		len = strlen(buffer);
-		if (len > 0 && buffer[len - 1] == '\n') {
-			buffer[len - 1] = '\0';
+	if (fgets(outbuf, sizeof(outbuf), pipe) != NULL) {
+		len = strlen(outbuf);
+		if (len > 0 && outbuf[len - 1] == '\n') {
+			outbuf[len - 1] = '\0';
 		}
 
-		result = malloc(strlen(buffer) + 1);
+		result = malloc(strlen(outbuf) + 1);
 		assert(result != NULL);
 		if (result) {
-			strcpy(result, buffer);
+			strcpy(result, outbuf);
 			pclose(pipe);
 			return result;
 		}
@@ -2588,80 +2597,7 @@ dump_pidfile(void)
 }
 
 
-/*
- * A text editor needs the terminal to be in raw mode; but the default
- * is to be in canonical (cooked) mode, which is a buffered input mode.
- */
-void
-enable_termraw(void)
-{
-	struct termios raw;
-
-	/* Read the current terminal parameters for standard input. */
-	if (tcgetattr(STDIN_FILENO, &raw) == -1) {
-		die("tcgetattr while enabling raw mode");
-	}
-
-	/*
-	 * Put the terminal into raw mode.
-	 */
-	cfmakeraw(&raw);
-
-	/*
-	 * Set timeout for read(2).
-	 *
-	 * VMIN: what is the minimum number of bytes required for read
-	 * to return?
-	 *
-	 * VTIME: max time before read(2) returns in hundreds of milli-
-	 * seconds.
-	 */
-	raw.c_cc[VMIN] = 0;
-	raw.c_cc[VTIME] = 1;
-
-	/*
-	 * Now write the terminal parameters to the current terminal,
-	 * after flushing any waiting input out.
-	 */
-	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {
-		die("tcsetattr while enabling raw mode");
-	}
-}
-
-
-void
-display_clear(abuf *ab)
-{
-	if (ab == NULL) {
-		kwrite(STDOUT_FILENO, ESCSEQ "2J", 4);
-		kwrite(STDOUT_FILENO, ESCSEQ "H", 3);
-	} else {
-		ab_append(ab, ESCSEQ "2J", 4);
-		ab_append(ab, ESCSEQ "H", 3);
-	}
-}
-
-
-void
-disable_termraw(void)
-{
-	display_clear(NULL);
-
-	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &editor.entry_term) == -1) {
-		die("couldn't disable terminal raw mode");
-	}
-}
-
-
-void
-setup_terminal(void)
-{
-	if (tcgetattr(STDIN_FILENO, &editor.entry_term) == -1) {
-		die("can't snapshot terminal settings");
-	}
-
-	enable_termraw();
-}
+/* terminal control moved to term.c */
 
 
 void
@@ -3012,66 +2948,78 @@ install_signal_handlers(void)
 int
 main(int argc, char *argv[])
 {
-	char	*fname  = NULL;
-	char	*lnarg  = NULL;
-	int	 lineno = 0;
-	int	 opt;
-	int	 debug  = 0;
-	int	 jump   = 0;
+    int	 opt;
+    int	 debug  = 0;
+    /* argv processing for multiple files and +lineno */
+    int	 pending_line = 0;   /* line number that applies to next filename */
+    int	 first_loaded = 0;   /* whether we've opened the first file into initial buffer */
 
-	install_signal_handlers();
+    install_signal_handlers();
 
-	while ((opt = getopt(argc, argv, "df:")) != -1) {
-		switch (opt) {
-		case 'd':
-			debug = 1;
-			break;
-		default:
-			fprintf(stderr, "Usage: ke [-d] [-f logfile] [path]\n");
-			exit(EXIT_FAILURE);
-		}
-	}
+    while ((opt = getopt(argc, argv, "df:")) != -1) {
+        switch (opt) {
+        case 'd':
+            debug = 1;
+            break;
+        default:
+            fprintf(stderr, "Usage: ke [-d] [-f logfile] [ +N ] [file ...]\n");
+            exit(EXIT_FAILURE);
+        }
+    }
 
-	argc -= optind;
-	argv += optind;
+    argc -= optind;
+    argv += optind;
 
 	setlocale(LC_ALL, "");
 	if (debug) {
 		enable_debugging();
 	}
 
-	setup_terminal();
-	init_editor();
+    setup_terminal();
+    init_editor();
 
-	if (argc > 0) {
-		fname = argv[0];
-	}
+    /* Process remaining argv: accept multiple filenames; a "+N" applies to next filename */
+    for (int i = 0; i < argc; i++) {
+        const char *arg = argv[i];
+        if (arg[0] == '+') {
+            /* parse line number; if invalid, set to 0 (ignored) */
+            const char *p = arg + 1;
+            int v = 0;
+            if (*p != '\0') {
+                v = atoi(p);
+                if (v < 1) v = 0;
+            }
+            pending_line = v;
+            continue;
+        }
 
-	if (argc > 1) {
-		lnarg = argv[0];
-		fname = argv[1];
-		if (lnarg[0] == '+') {
-			lnarg++;
-		}
-		lineno = atoi(lnarg);
-		jump = 1;
-	}
+        /* It's a filename */
+        if (!first_loaded) {
+            /* initial empty buffer already exists; load into it */
+            open_file(arg);
+            if (pending_line > 0) {
+                jump_to_position(0, pending_line - 1);
+                pending_line = 0;
+            }
+            buffer_save_current();
+            first_loaded = 1;
+        } else {
+            /* create and switch to a new buffer for subsequent files */
+            int nb = buffer_add_empty();
+            buffer_switch(nb);
+            open_file(arg);
+            if (pending_line > 0) {
+                jump_to_position(0, pending_line - 1);
+                pending_line = 0;
+            }
+            buffer_save_current();
+        }
+    }
 
-	if (fname != NULL) {
-		open_file(fname);
-	}
+    editor_set_status("C-k q to exit / C-k d to dump core");
 
-	editor_set_status("C-k q to exit / C-k d to dump core");
-	if (jump) {
-		if (lineno < 1) {
-			editor_set_status("Invalid line number %s", lnarg);
-		} else {
-			jump_to_position(0, lineno - 1);
-		}
-	}
+    display_clear(NULL);
+    loop();
 
-	display_clear(NULL);
-	loop();
-
-	return 0;
+    return 0;
 }
