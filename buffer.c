@@ -1,4 +1,4 @@
-/* buffer.c - buffer management implementation */
+/* buffer.c - multiple file buffers */
 
 #include <assert.h>
 #include <stdint.h>
@@ -8,13 +8,15 @@
 
 #include "abuf.h"
 #include "buffer.h"
+#include "core.h"
 #include "editor.h"
 
 
-#define NO_NAME		 "[No Name]"
+#define		NO_NAME		 "[No Name]"
+
 
 /* externs from other modules */
-char *editor_prompt(char *, void (*cb)(char *, int16_t));
+char *editor_prompt(const char *, void (*cb)(char *, int16_t));
 
 
 static const char *
@@ -28,6 +30,7 @@ buf_basename(const char *path)
 	return (slash != NULL) ? (slash + 1) : path;
 }
 
+
 static int
 buffer_find_exact_by_name(const char *name)
 {
@@ -38,7 +41,7 @@ buffer_find_exact_by_name(const char *name)
 	}
 
 	for (int i = 0; i < editor.bufcount; i++) {
-		b = editor.buffers[i];
+		b                = editor.buffers[i];
 		const char *full = b->filename;
 		const char *base = buf_basename(full);
 
@@ -62,13 +65,13 @@ buffer_find_exact_by_name(const char *name)
 static int
 buffer_collect_prefix_matches(const char *prefix, int *out_idx, const int max_out)
 {
-	buffer		*b       = NULL;
-	int		 count   = 0;
-	int		 matched = 0;
-	size_t		 plen    = (prefix ? strlen(prefix) : 0);
+	buffer	*b       = NULL;
+	int	 count   = 0;
+	int	 matched = 0;
+	size_t	 plen    = (prefix ? strlen(prefix) : 0);
 
 	for (int i = 0; i < editor.bufcount; i++) {
-		b         = editor.buffers[i];
+		b = editor.buffers[i];
 
 		const char *cand1 = b->filename;
 		const char *cand2 = buf_basename(cand1);
@@ -100,13 +103,13 @@ buffer_collect_prefix_matches(const char *prefix, int *out_idx, const int max_ou
 static void
 longest_common_prefix(char *buf, const size_t bufsz, const int *idxs, const int n)
 {
-	const char	*first = NULL;
-	const char	*cand  = NULL;
-	int		 k = 0;
-	size_t		 j = 0;
-	size_t		 cur = 0;
-	size_t		 lcp = 0;
-	size_t		 to_copy = 0;
+	const char *first = NULL;
+	const char *cand  = NULL;
+	int k             = 0;
+	size_t j          = 0;
+	size_t cur        = 0;
+	size_t lcp        = 0;
+	size_t to_copy    = 0;
 
 	if (n <= 0) {
 		return;
@@ -150,18 +153,17 @@ longest_common_prefix(char *buf, const size_t bufsz, const int *idxs, const int 
 static void
 buffer_switch_prompt_cb(char *buf, const int16_t key)
 {
-	char		 msg[80]  = {0};
-	const char	*name	  = NULL;
-	const char	*nm	  = NULL;
-	int		 idxs[64] = {0};
-	int		 n	  = 0;
-	size_t		 need	  = 0;
-	size_t		 used	  = 0;
+	char msg[80]     = {0};
+	const char *name = NULL;
+	const char *nm   = NULL;
+	int idxs[64]     = {0};
+	int n            = 0;
+	size_t need      = 0;
+	size_t used      = 0;
 
-	if (key != 9) { /* TODO(kyle): extract TAB_KEY */
-		return; /* TAB key */
+	if (key != TAB_KEY) {
+		return;
 	}
-
 
 	n = buffer_collect_prefix_matches(buf, idxs, 64);
 	if (n <= 0) {
@@ -187,7 +189,7 @@ buffer_switch_prompt_cb(char *buf, const int16_t key)
 
 	longest_common_prefix(buf, 128, idxs, n);
 	msg[0] = '\0';
-	used = 0;
+	used   = 0;
 	used += snprintf(msg + used, sizeof(msg) - used, "%d matches: ", n);
 	for (int i = 0; i < n && used < sizeof(msg) - 1; i++) {
 		nm = buf_basename(editor.buffers[idxs[i]]->filename);
@@ -204,7 +206,7 @@ buffer_switch_prompt_cb(char *buf, const int16_t key)
 
 
 static void
-buffer_bind_to_editor(buffer *b)
+buffer_bind_to_editor(const buffer *b)
 {
 	if (b == NULL) {
 		return;
@@ -225,7 +227,8 @@ buffer_bind_to_editor(buffer *b)
 }
 
 
-static void buffer_extract_from_editor(buffer *b)
+static void
+buffer_extract_from_editor(buffer *b)
 {
 	if (b == NULL) {
 		return;
@@ -273,9 +276,9 @@ buffers_init(void)
 int
 buffer_add_empty(void)
 {
-	buffer	 *buf = NULL;
-	buffer	**newlist = realloc(editor.buffers, sizeof(buffer *) * (editor.bufcount + 1));
-	int	  idx = 0;
+	buffer	 *buf    = NULL;
+	buffer **newlist = realloc(editor.buffers, sizeof(buffer *) * (editor.bufcount + 1));
+	int	 idx     = 0;
 
 	assert(newlist != NULL);
 	editor.buffers = newlist;
@@ -306,7 +309,7 @@ buffer_add_empty(void)
 void
 buffer_save_current(void)
 {
-	buffer *b = NULL;
+	buffer	*b = NULL;
 
 	if (editor.curbuf < 0 || editor.curbuf >= editor.bufcount) {
 		return;
@@ -314,6 +317,43 @@ buffer_save_current(void)
 
 	b = editor.buffers[editor.curbuf];
 	buffer_extract_from_editor(b);
+}
+
+
+buffer *
+buffer_current(void)
+{
+	if (editor.curbuf < 0 || editor.curbuf >= editor.bufcount) {
+		return NULL;
+	}
+	return editor.buffers[editor.curbuf];
+}
+
+
+int
+buffer_is_unnamed_and_empty(const buffer *b)
+{
+	if (b == NULL) {
+		return 0;
+	}
+
+	if (b->filename != NULL) {
+		return 0;
+	}
+
+	if (b->dirty) {
+		return 0;
+	}
+
+	if (b->nrows != 0) {
+		return 0;
+	}
+
+	if (b->row != NULL) {
+		return 0;
+	}
+
+	return 1;
 }
 
 
@@ -345,7 +385,7 @@ buffer_switch(const int idx)
 void
 buffer_next(void)
 {
-	int	 idx = 0;
+	int idx = 0;
 
 	if (editor.bufcount <= 1) {
 		return;
@@ -355,7 +395,9 @@ buffer_next(void)
 	buffer_switch(idx);
 }
 
-void buffer_prev(void)
+
+void
+buffer_prev(void)
 {
 	int	 idx = 0;
 
@@ -371,10 +413,10 @@ void buffer_prev(void)
 void
 buffer_close_current(void)
 {
-	buffer	*b = NULL;
+	buffer	*b   = NULL;
 	int	 closing = 0;
 	int	 target  = 0;
-	int	 nb	 = 0;
+	int	 nb      = 0;
 
 	if (editor.curbuf < 0 || editor.curbuf >= editor.bufcount) {
 		editor_set_status("No buffer to close.");
@@ -429,9 +471,14 @@ void
 buffer_switch_by_name(void)
 {
 	int	 idxs[64] = {0};
-	char	*name     = NULL;
+	char	*name   = NULL;
 	int	 idx      = 0;
 	int	 n        = 0;
+
+	if (editor.bufcount <= 1) {
+		editor_set_status("No other buffers.");
+		return;
+	}
 
 	name = editor_prompt("Switch buffer (name, TAB to complete): %s", buffer_switch_prompt_cb);
 	if (name == NULL) {

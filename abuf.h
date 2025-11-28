@@ -13,10 +13,13 @@ typedef struct abuf {
     size_t	 cap;
 } abuf;
 
+
 #define ABUF_INIT {NULL, 0, 0}
 
 
 void		 ab_init(abuf *buf);
+void		 ab_init_cap(abuf *buf, size_t cap);
+void		 ab_resize(abuf *buf, size_t cap);
 void		 ab_appendch(abuf *buf, char c);
 void		 ab_append(abuf *buf, const char *s, size_t len);
 void		 ab_prependch(abuf *buf, const char c);

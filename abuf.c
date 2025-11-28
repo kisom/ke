@@ -3,15 +3,35 @@
 #include <string.h>
 
 #include "abuf.h"
+#include "core.h"
 
 
 void
-abuf_init(abuf *buf)
+ab_init(abuf *buf)
 {
 	assert(buf != NULL);
 
 	buf->b    = NULL;
 	buf->size = buf->cap = 0;
+}
+
+
+void
+ab_init_cap(abuf *buf, const size_t cap)
+{
+	buf->b    = calloc(cap, 1);
+	buf->size = 0;
+	buf->cap  = cap;
+}
+
+
+void
+ab_resize(abuf *buf, size_t cap)
+{
+	cap = cap_growth(buf->cap, cap);
+	buf->b = realloc(buf->b, cap);
+	assert(buf->b != NULL);
+	buf->cap = cap;
 }
 
 

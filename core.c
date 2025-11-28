@@ -35,6 +35,70 @@ strnstr(const char *s, const char *find, size_t slen)
 #endif
 
 
+char
+nibble_to_hex(char c)
+{
+	c &= 0xf;
+	if (c < 10) {
+		return (char)('0' + c);
+	}
+	return (char)('A' + (c - 10));
+}
+
+
+void
+swap_int(int *first, int *second)
+{
+	*first ^= *second;
+	*second ^= *first;
+	*first ^= *second;
+}
+
+
+int
+next_power_of_2(int n)
+{
+	if (n < 2) {
+		n = 2;
+	}
+
+	n--;
+	n |= n >> 1;
+	n |= n >> 2;
+	n |= n >> 4;
+	n |= n >> 8;
+	n |= n >> 16;
+
+	return n + 1;
+}
+
+
+int
+cap_growth(int cap, int sz)
+{
+	if (cap == 0) {
+		cap = INITIAL_CAPACITY;
+	}
+
+	while (cap <= sz) {
+		cap = next_power_of_2(cap + 1);
+	}
+
+	return cap;
+}
+
+
+size_t
+kstrnlen(const char *buf, const size_t max)
+{
+	if (buf == NULL) {
+		return 0;
+	}
+
+	return strnlen(buf, max);
+}
+
+
 void
 kwrite(const int fd, const char* buf, const int len)
 {

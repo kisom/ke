@@ -11,7 +11,8 @@ LDFLAGS :=	-fsanitize=address
 
 all: $(TARGET) test.txt
 
-SRCS := main.c abuf.c term.c buffer.c
+SRCS := main.c abuf.c term.c buffer.c editor.c core.c
+HDRS :=        abuf.h term.h buffer.h editor.h core.h
 
 $(TARGET): $(SRCS)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS) $(LDFLAGS)
@@ -33,3 +34,7 @@ test.txt:
 gdb:
 	@test -f $(TARGET).pid || (echo "error: $(TARGET).pid not found" >&2; exit 1)
 	@gdb -p $$(cat $(TARGET).pid | tr -d ' \t\n\r') ./$(TARGET)
+
+.PHONY: cloc
+cloc:
+	cloc $(SRCS) $(HDRS)

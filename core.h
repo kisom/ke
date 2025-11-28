@@ -1,9 +1,11 @@
 #ifndef KE_CORE_H
 #define KE_CORE_H
 
-
-#define calloc1(sz)		calloc(1, sz)
 #include <stddef.h>
+
+
+#define		calloc1(sz)		calloc(1, sz)
+#define		INITIAL_CAPACITY	8
 
 
 typedef enum key_press {
@@ -21,14 +23,19 @@ typedef enum key_press {
 	PG_DN       = 1008,
 } key_press;
 
+
 #ifndef strnstr
 char	*strnstr(const char *s, const char *find, size_t slen);
 #define	INCLUDE_STRNSTR
 #endif
 
-
-void kwrite(int fd, const char *buf, int len);
-void die(const char *s);
+char		 nibble_to_hex(char c);
+void		 swap_int(int *first, int *second);
+int		 next_power_of_2(int n);
+int		 cap_growth(int cap, int sz);
+size_t		 kstrnlen(const char *buf, size_t max);
+void		 kwrite(int fd, const char *buf, int len);
+void		 die(const char *s);
 
 
 #endif

@@ -41,6 +41,7 @@
 
 #include "abuf.h"
 #include "buffer.h"
+#include "editor.h"
 #include "core.h"
 #include "term.h"
 
@@ -68,84 +69,12 @@
 #define	TAB_STOP		8
 
 
-#define INITIAL_CAPACITY	64
-
-
 #define KILLRING_NO_OP		0	/* don't touch the killring */
 #define KILLRING_APPEND		1	/* append deleted chars */
 #define KILLRING_PREPEND	2	/* prepend deleted chars */
 #define KILLING_SET		3	/* set killring to deleted char */
 #define KILLRING_FLUSH		4	/* clear the killring */
 
-
-/*
- * editor is the global editor state.
- */
-struct editor {
-	struct termios	 entry_term;
-	int		 rows, cols;
-	int		 curx, cury;
-	int		 rx;
-	int		 mode;
-	int		 nrows;
-	int		 rowoffs, coloffs;
-	abuf		*row;
-	abuf		*killring;
-	int		 kill;    /* KILL CHAIN (sounds metal) */
-	int		 no_kill; /* don't kill in delete_row */
-	char		*filename;
-	int		 dirty;
-	int		 dirtyex;
-	char		 msg[80];
-	int		 mark_set;
-	int		 mark_curx, mark_cury;
-	int		 uarg, ucount; /* C-u support */
-	time_t		 msgtm;
-
-	/* Multi-buffer support */
-	struct buffer	**buffers;  /* buffer list */
-	int		 bufcount;  /* number of buffers */
-	int		 curbuf;    /* current buffer index */
-} editor = {
-	.cols = 0,
-	.rows = 0,
-	.curx = 0,
-	.cury = 0,
-	.mode = 0,
-	.nrows = 0,
-	.rowoffs = 0,
-	.coloffs = 0,
-	.row = NULL,
-	.killring = NULL,
-	.kill = 0,
-	.no_kill = 0,
-	.filename = NULL,
-	.dirty = 0,
-	.dirtyex = 0,
-	.mark_set = 0,
-	.mark_curx = 0,
-	.mark_cury = 0,
-	.uarg = 0,
-	.ucount = 0,
-	.buffers = NULL,
-	.bufcount = 0,
-	.curbuf = -1,
-};
-
-
-void		 init_editor(void);
-void		 reset_editor(void);
-
-/* buffers now declared in buffer.h */
-
-/* small tools, abufs, etc */
-int		 next_power_of_2(int n);
-int		 cap_growth(int cap, int sz);
-size_t		 kstrnlen(const char *buf, size_t max);
-void		 ab_init(abuf *buf);
-void		 ab_init_cap(abuf *buf, size_t cap);
-char		 nibble_to_hex(char c);
-void		 swap_int(int *a, int *b);
 
 /* kill ring, marking, etc... */
 void		 killring_flush(void);
@@ -161,9 +90,6 @@ void		 indent_region(void);
 void		 delete_region(void);
 
 /* miscellaneous */
-void		 kwrite(int fd, const char *buf, int len);
-void		 die(const char *s);
-/* get_winsz now provided by term.h */
 void		 jump_to_position(int col, int row);
 void		 goto_line(void);
 int		 cursor_at_eol(void);
@@ -184,7 +110,7 @@ uint16_t	 is_arrow_key(int16_t c);
 int16_t		 get_keypress(void);
 void		 editor_find_callback(char *query, int16_t c);
 void		 editor_find(void);
-char		*editor_prompt(char*, void (*cb)(char*, int16_t));
+char		*editor_prompt(const char*, void (*cb)(char*, int16_t));
 void		 editor_openfile(void);
 int		 first_nonwhitespace(abuf *row);
 void		 move_cursor_once(int16_t c, int interactive);
@@ -200,14 +126,12 @@ void		 process_escape(int16_t c);
 int		 process_keypress(void);
 char		*get_cloc_code_lines(const char *filename);
 int		 dump_pidfile(void);
-/* terminal functions declared in term.h */
 void		 draw_rows(abuf *ab);
 char		 status_mode_char(void);
 void		 draw_status_bar(abuf *ab);
 void		 draw_message_line(abuf *ab);
 void		 scroll(void);
 void		 display_refresh(void);
-void		 editor_set_status(const char *fmt, ...);
 void		 loop(void);
 void		 enable_debugging(void);
 void		 deathknell(void);
@@ -215,328 +139,207 @@ static void	 signal_handler(int sig);
 static void	 install_signal_handlers(void);
 
 
-int
-next_power_of_2(int n)
+static int
+path_is_dir(const char *path)
 {
-	if (n < 2) {
-		n = 2;
-	}
+	struct stat st;
 
-	n--;
-	n |= n >> 1;
-	n |= n >> 2;
-	n |= n >> 4;
-	n |= n >> 8;
-	n |= n >> 16;
-
-	return n + 1;
-}
-
-
-int
-cap_growth(int cap, int sz)
-{
-	if (cap == 0) {
-		cap = INITIAL_CAPACITY;
-	}
-
-	while (cap <= sz) {
-		cap = next_power_of_2(cap + 1);
-	}
-
-	return cap;
-}
-
-
-size_t
-kstrnlen(const char *buf, const size_t max)
-{
-	if (buf == NULL) {
+	if (path == NULL) {
 		return 0;
 	}
 
-	return strnlen(buf, max);
+	if (stat(path, &st) == 0) {
+		return S_ISDIR(st.st_mode);
+	}
+
+	return 0;
+}
+
+
+static size_t
+str_lcp2(const char *a, const char *b)
+{
+	size_t	 i = 0;
+
+	if (!a || !b) {
+		return 0;
+	}
+
+	while (a[i] && b[i] && a[i] == b[i]) {
+		i++;
+	}
+
+	return i;
 }
 
 
 /*
- * init_editor should set up the global editor struct.
+ * TODO(kyle): not proud of this, but it does work. It needs to be
+ * cleaned up and the number of buffers consolidated.
  */
-void
-init_editor(void)
+static void
+file_open_prompt_cb(char *buf, const int16_t key)
 {
-	editor.cols = 0;
-	editor.rows = 0;
+	DIR		*dirp              = NULL;
+	const char	*name              = NULL;
+	const char	*names[128]        = {0};
+	char		 ext[256]          = {0};
+	char		 full[PATH_MAX]    = {0};
+	char		 msg[80]           = {0};
+	char		 newbuf[PATH_MAX]  = {0};
+	int		 isdir[128]        = {0};
+	struct dirent	*de                = NULL;
+	const char	*slash             = NULL;
+	char		 dirpath[PATH_MAX] = {0};
+	char		 base[256]         = {0};
+	int		 n                 = 0;
+	size_t		 cur               = 0;
+	size_t		 k                 = 0;
+	size_t		 lcp               = 0;
+	size_t		 to_copy           = 0;
+	size_t		 dlen              = 0;
+	size_t		 plen              = 0;
 
-	if (get_winsz(&editor.rows, &editor.cols) == -1) {
-		die("can't get window size");
+	if (key != TAB_KEY) {
+		return;
 	}
-	editor.rows--; /* status bar */
-	editor.rows--; /* message line */
 
-	editor.curx = editor.cury = 0;
-	editor.rx = 0;
+	slash = strrchr(buf, '/');
+	if (slash) {
+		dlen = (size_t) (slash - buf);
+		if (dlen == 0) {
+			/* path like "/foo" -> dir is "/" */
+			strcpy(dirpath, "/");
+		} else {
+			if (dlen >= sizeof(dirpath)) {
+				dlen = sizeof(dirpath) - 1;
+			}
 
-	editor.nrows = 0;
-	editor.rowoffs = editor.coloffs = 0;
-	editor.row = NULL;
+			memcpy(dirpath, buf, dlen);
+			dirpath[dlen] = '\0';
+		}
 
-	/* don't clear out the kill ring:
-	 * killing / yanking across files is helpful, and killring
-	 * is initialized to NULL at program start.
-	 */
-	/* editor.killring = NULL; */
-	editor.kill = 0;
-	editor.no_kill = 0;
-
-	editor.msg[0] = '\0';
-	editor.msgtm = 0;
-
-	editor.dirty = 0;
-	editor.mark_set = 0;
-	editor.mark_cury = editor.mark_curx = 0;
-
-	/* initialize buffer system on first init */
-	if (editor.buffers == NULL && editor.bufcount == 0) {
-		buffers_init();
+		strncpy(base, slash + 1, sizeof(base) - 1);
+		base[sizeof(base) - 1] = '\0';
+	} else {
+		strcpy(dirpath, ".");
+		strncpy(base, buf, sizeof(base) - 1);
+		base[sizeof(base) - 1] = '\0';
 	}
-}
 
-
-/*
- * reset_editor presumes that editor has been initialized.
- */
-void
-reset_editor(void)
-{
-	/* Clear current working set (does not reset terminal or buffers list) */
-	for (int i = 0; i < editor.nrows; i++) {
-		ab_free(&editor.row[i]);
+	dirp = opendir(dirpath);
+	if (!dirp) {
+		editor_set_status("No such dir: %s", dirpath);
+		return;
 	}
-	free(editor.row);
-	editor.row = NULL;
-	editor.nrows = 0;
-	editor.rowoffs = editor.coloffs = 0;
-	editor.curx = editor.cury = 0;
-	editor.rx = 0;
-	if (editor.filename != NULL) {
-		free(editor.filename);
-		editor.filename = NULL;
+
+	plen = strlen(base);
+	while ((de = readdir(dirp)) != NULL) {
+		name = de->d_name;
+
+		/* Skip . and .. */
+		if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+			continue;
+		}
+
+		if (plen == 0 || strncmp(name, base, plen) == 0) {
+			if (n < 128) {
+				names[n] = strdup(name);
+
+				/* Build full path to test dir */
+				if (snprintf(full, sizeof(full),
+					"%s/%s", dirpath, name) >= 0) {
+					isdir[n] = path_is_dir(full);
+				} else {
+					isdir[n] = 0;
+				}
+
+				n++;
+			}
+		}
 	}
-	editor.dirty = 0;
-	editor.mark_set = 0;
-	editor.mark_cury = editor.mark_curx = 0;
-}
 
+	closedir(dirp);
 
-void
-ab_init(abuf *buf)
-{
-    buf->b = NULL;
-    buf->size = 0;
-    buf->cap = 0;
-}
-
-
-void
-ab_init_cap(abuf *buf, const size_t cap)
-{
-	buf->b = calloc1(cap);
-	buf->size = 0;
-	buf->cap = cap;
-}
-
-
-void
-ab_resize(abuf *buf, size_t cap)
-{
-    cap = cap_growth(buf->cap, cap);
-    buf->b = realloc(buf->b, cap);
-    assert(buf->b != NULL);
-    buf->cap = cap;
-}
-
-
-/* Buffer management moved to buffer.c */
-
-/* =========================
- * File open: TAB completion callback
- * ========================= */
-static int path_is_dir(const char *path)
-{
-    struct stat st;
-    if (path == NULL) return 0;
-    if (stat(path, &st) == 0) {
-        return S_ISDIR(st.st_mode);
-    }
-    return 0;
-}
-
-static size_t str_lcp2(const char *a, const char *b)
-{
-    if (!a || !b) return 0;
-    size_t i = 0;
-    while (a[i] && b[i] && a[i] == b[i]) i++;
-    return i;
-}
-
-static void file_open_prompt_cb(char *buf, int16_t key)
-{
-    if (key != TAB_KEY) return;
-
-    /* Determine directory and basename prefix */
-    char dirpath[PATH_MAX];
-    char base[256];
-    const char *slash = strrchr(buf, '/');
-    if (slash) {
-        size_t dlen = (size_t)(slash - buf);
-        if (dlen == 0) {
-            /* path like "/foo" -> dir is "/" */
-            strcpy(dirpath, "/");
-        } else {
-            if (dlen >= sizeof(dirpath)) dlen = sizeof(dirpath) - 1;
-            memcpy(dirpath, buf, dlen);
-            dirpath[dlen] = '\0';
-        }
-        strncpy(base, slash + 1, sizeof(base) - 1);
-        base[sizeof(base) - 1] = '\0';
-    } else {
-        strcpy(dirpath, ".");
-        strncpy(base, buf, sizeof(base) - 1);
-        base[sizeof(base) - 1] = '\0';
-    }
-
-    DIR *d = opendir(dirpath);
-    if (!d) {
-        editor_set_status("No such dir: %s", dirpath);
-        return;
-    }
-
-    /* Collect matches */
-    const char *names[128];
-    int isdir[128];
-    int n = 0;
-    size_t plen = strlen(base);
-
-    struct dirent *de;
-    while ((de = readdir(d)) != NULL) {
-        const char *name = de->d_name;
-        /* Skip . and .. */
-        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
-        if (plen == 0 || strncmp(name, base, plen) == 0) {
-            if (n < 128) {
-                names[n] = strdup(name);
-                /* Build full path to test dir */
-                char full[PATH_MAX];
-                if (snprintf(full, sizeof(full), "%s/%s", dirpath, name) >= 0) {
-                    isdir[n] = path_is_dir(full);
-                } else {
-                    isdir[n] = 0;
-                }
-                n++;
-            }
-        }
-    }
-    closedir(d);
-
-    if (n == 0) {
-        editor_set_status("No file matches '%s' in %s", base, dirpath);
-        return;
-    }
-
-    /* Compute LCP across matches */
-    size_t lcp = strlen(names[0]);
-    for (int i = 1; i < n; i++) {
-        size_t k = str_lcp2(names[0], names[i]);
-        if (k < lcp) lcp = k;
-        if (lcp == 0) break;
-    }
-
-    /* Build new buffer string: dirpath + '/' (if not root and present) + completion */
-    char newbuf[PATH_MAX];
-    newbuf[0] = '\0';
-    if (slash) {
-        /* Preserve original directory portion including trailing slash */
-        size_t dlen = (size_t)(slash - buf);
-        if (dlen >= sizeof(newbuf)) dlen = sizeof(newbuf) - 1;
-        memcpy(newbuf, buf, dlen);
-        newbuf[dlen] = '\0';
-        strncat(newbuf, "/", sizeof(newbuf) - strlen(newbuf) - 1);
-    }
-
-    /* The part to append is: if unique -> full name (+ '/' if dir), else current base extended to LCP */
-    if (n == 1) {
-        strncat(newbuf, names[0], sizeof(newbuf) - strlen(newbuf) - 1);
-        if (isdir[0]) {
-            strncat(newbuf, "/", sizeof(newbuf) - strlen(newbuf) - 1);
-        }
-        /* Replace buffer */
-        strncpy(buf, newbuf[0] ? newbuf : names[0], 127);
-        buf[127] = '\0';
-        editor_set_status("Unique match: %s%s", names[0], isdir[0] ? "/" : "");
-    } else {
-        /* Extend to LCP */
-        char ext[256];
-        size_t cur = strlen(base);
-        if (lcp > cur) {
-            size_t to_copy = lcp - cur;
-            if (to_copy >= sizeof(ext)) to_copy = sizeof(ext) - 1;
-            memcpy(ext, names[0] + cur, to_copy);
-            ext[to_copy] = '\0';
-            /* Always start from current base prefix */
-            strncat(newbuf, base, sizeof(newbuf) - strlen(newbuf) - 1);
-            strncat(newbuf, ext, sizeof(newbuf) - strlen(newbuf) - 1);
-        } else {
-            /* No extension possible, keep base as-is */
-            strncat(newbuf, base, sizeof(newbuf) - strlen(newbuf) - 1);
-        }
-        strncpy(buf, newbuf, 127);
-        buf[127] = '\0';
-
-        /* Show candidates */
-        char msg[80];
-        size_t used = 0;
-        used += snprintf(msg + used, sizeof(msg) - used, "%d matches: ", n);
-        for (int i = 0; i < n && used < sizeof(msg) - 1; i++) {
-            used += snprintf(msg + used, sizeof(msg) - used, "%s%s%s",
-                             (i ? ", " : ""), names[i], isdir[i] ? "/" : "");
-        }
-        editor_set_status("%s", msg);
-    }
-
-    /* Free duplicated names */
-    for (int i = 0; i < n; i++) free((void*)names[i]);
-}
-
-/* Close the current buffer. If dirty, require confirmation (press C-k c twice) */
-/* buffer_close_current now implemented in buffer.c */
-
-
-/* abuf implementations moved to abuf.c */
-
-
-char
-nibble_to_hex(char c)
-{
-	c &= 0xf;
-	if (c < 10) {
-		return (char)('0' + c);
+	if (n == 0) {
+		editor_set_status("No file matches '%s' in %s", base, dirpath);
+		return;
 	}
-	return (char)('A' + (c - 10));
-}
 
+	lcp = strlen(names[0]);
+	for (int i = 1; i < n; i++) {
+		k = str_lcp2(names[0], names[i]);
+		if (k < lcp) {
+			lcp = k;
+		}
 
-void
-swap_int(int *a, int *b)
-{
-	*a ^= *b;
-	*b ^= *a;
-	*a ^= *b;
+		if (lcp == 0) {
+			break;
+		}
+	}
+
+	newbuf[0] = '\0';
+	if (slash) {
+		dlen = (size_t) (slash - buf);
+		if (dlen >= sizeof(newbuf)) {
+			dlen = sizeof(newbuf) - 1;
+		}
+
+		memcpy(newbuf, buf, dlen);
+		newbuf[dlen] = '\0';
+		strncat(newbuf, "/", sizeof(newbuf) - strlen(newbuf) - 1);
+	}
+
+	/* appending: if unique -> full name (+ '/' if dir), else current
+	 * base extended to LCP */
+	if (n == 1) {
+		strncat(newbuf, names[0], sizeof(newbuf) - strlen(newbuf) - 1);
+		if (isdir[0]) {
+			strncat(newbuf, "/", sizeof(newbuf) - strlen(newbuf) - 1);
+		}
+
+		strncpy(buf, newbuf[0] ? newbuf : names[0], 127);
+		buf[127] = '\0';
+		editor_set_status("Unique match: %s%s", names[0], isdir[0] ? "/" : "");
+	} else {
+		cur = strlen(base);
+		if (lcp > cur) {
+			to_copy = lcp - cur;
+			if (to_copy >= sizeof(ext)) {
+				to_copy = sizeof(ext) - 1;
+			}
+
+			memcpy(ext, names[0] + cur, to_copy);
+			ext[to_copy] = '\0';
+
+			strncat(newbuf, base, sizeof(newbuf) - strlen(newbuf) - 1);
+			strncat(newbuf, ext, sizeof(newbuf) - strlen(newbuf) - 1);
+		} else {
+			strncat(newbuf, base, sizeof(newbuf) - strlen(newbuf) - 1);
+		}
+
+		strncpy(buf, newbuf, 127);
+		buf[127] = '\0';
+
+		size_t used = 0;
+		used += snprintf(msg + used, sizeof(msg) - used, "%d matches: ", n);
+		for (int i = 0; i < n && used < sizeof(msg) - 1; i++) {
+			used += snprintf(msg + used, sizeof(msg) - used, "%s%s%s",
+			                 (i ? ", " : ""), names[i], isdir[i] ? "/" : "");
+		}
+
+		editor_set_status("%s", msg);
+	}
+
+	/* Free duplicated names */
+	for (int i = 0; i < n; i++) {
+		free((void *) names[i]);
+	}
 }
 
 
 int
-erow_render_to_cursor(abuf *row, int cx)
+erow_render_to_cursor(const abuf *row, const int cx)
 {
 	int		 rx = 0;
 	size_t		 j = 0;
@@ -667,19 +470,19 @@ erow_init(abuf *row, int len)
 void
 erow_insert(int at, char *s, int len)
 {
-	abuf	*row = realloc(editor.row, sizeof(abuf)*(editor.nrows+1));
+	abuf *row = realloc(EROW, sizeof(abuf) * (ENROWS + 1));
 
 	assert(row != NULL);
-	editor.row = row;
+	EROW = row;
 
-	if (at < editor.nrows) {
-		memmove(&editor.row[at+1], &editor.row[at],
-			sizeof(abuf)*(editor.nrows-at));
+	if (at < ENROWS) {
+		memmove(&EROW[at + 1], &EROW[at],
+		        sizeof(abuf) * (ENROWS - at));
 	}
 
-	ab_init(&editor.row[at]);
-	ab_append(&editor.row[at], s, len);
-	editor.nrows++;
+	ab_init(&EROW[at]);
+	ab_append(&EROW[at], s, len);
+	ENROWS++;
 }
 
 
@@ -783,15 +586,15 @@ killring_prepend_char(unsigned char ch)
 void
 toggle_markset(void)
 {
-	if (editor.mark_set) {
-		editor.mark_set = 0;
+	if (EMARK_SET) {
+		EMARK_SET = 0;
 		editor_set_status("Mark cleared.");
 		return;
 	}
 
-	editor.mark_set = 1;
-	editor.mark_curx = editor.curx;
-	editor.mark_cury = editor.cury;
+	EMARK_SET  = 1;
+	EMARK_CURX = ECURX;
+	EMARK_CURY = ECURY;
 	editor_set_status("Mark set.");
 }
 
@@ -799,37 +602,37 @@ toggle_markset(void)
 int
 cursor_after_mark(void)
 {
-	if (editor.mark_cury < editor.cury) {
+	if (EMARK_CURY < ECURY) {
 		return 1;
 	}
 
-	if (editor.mark_cury > editor.cury) {
+	if (EMARK_CURY > ECURY) {
 		return 0;
 	}
 
-	return editor.curx >= editor.mark_curx;
+	return ECURX >= EMARK_CURX;
 }
 
 
 int
 count_chars_from_cursor_to_mark(void)
 {
-	int count = 0;
-	int curx = editor.curx;
-	int cury = editor.cury;
+	int	 count = 0;
+	int	 curx  = ECURX;
+	int	 cury  = ECURY;
 
-	int markx = editor.mark_curx;
-	int marky = editor.mark_cury;
+	int	 markx = EMARK_CURX;
+	int	 marky = EMARK_CURY;
 
 	if (!cursor_after_mark()) {
 		swap_int(&curx, &markx);
 		swap_int(&curx, &marky);
 	}
 
-	editor.curx = markx;
-	editor.cury = marky;
+	ECURX = markx;
+	ECURY = marky;
 
-	while (editor.cury != cury) {
+	while (ECURY != cury) {
 		while (!cursor_at_eol()) {
 			move_cursor(ARROW_RIGHT, 1);
 			count++;
@@ -839,7 +642,7 @@ count_chars_from_cursor_to_mark(void)
 		count++;
 	}
 
-	while (editor.curx != curx) {
+	while (ECURX != curx) {
 		count++;
 		move_cursor(ARROW_RIGHT, 1);
 	}
@@ -851,16 +654,16 @@ count_chars_from_cursor_to_mark(void)
 void
 kill_region(void)
 {
-	int curx = editor.curx;
-	int cury = editor.cury;
-	int markx = editor.mark_curx;
-	int marky = editor.mark_cury;
+	int	 curx  = ECURX;
+	int	 cury  = ECURY;
+	int	 markx = EMARK_CURX;
+	int	 marky = EMARK_CURY;
 
-	if (!editor.mark_set) {
+	if (!EMARK_SET) {
 		return;
 	}
 
-	/* kill the current killring */
+	/* kill the current killring first */
 	killring_flush();
 
 	if (!cursor_after_mark()) {
@@ -868,47 +671,48 @@ kill_region(void)
 		swap_int(&cury, &marky);
 	}
 
-	editor.curx = markx;
-	editor.cury = marky;
+	ECURX = markx;
+	ECURY = marky;
 
-	while (editor.cury != cury) {
+	while (ECURY != cury) {
 		while (!cursor_at_eol()) {
-			killring_append_char(editor.row[editor.cury].b[editor.curx]);
+			killring_append_char(EROW[ECURY].b[ECURX]);
 			move_cursor(ARROW_RIGHT, 0);
 		}
 		killring_append_char('\n');
 		move_cursor(ARROW_RIGHT, 0);
 	}
 
-	while (editor.curx != curx) {
-		killring_append_char(editor.row[editor.cury].b[editor.curx]);
+	while (ECURX != curx) {
+		killring_append_char(EROW[ECURY].b[ECURX]);
 		move_cursor(ARROW_RIGHT, 0);
 	}
 
 	editor_set_status("Region killed.");
 	/* clearing the mark needs to be done outside this function;	*
-         * when deleteing the region, the mark needs to be set too.	*/
+         * when deleting the region, the mark needs to be set too.	*/
 }
 
 
 void
 indent_region(void)
 {
-	int start_row, end_row;
-	int i;
+	int	 start_row = 0;
+	int	 end_row   = 0;
+	int	 i         = 0;
 
-	if (!editor.mark_set) {
+	if (!EMARK_SET) {
 		return;
 	}
 
-	if (editor.mark_cury < editor.cury) {
-		start_row = editor.mark_cury;
-		end_row = editor.cury;
-	} else if (editor.mark_cury > editor.cury) {
-		start_row = editor.cury;
-		end_row = editor.mark_cury;
+	if (EMARK_CURY < ECURY) {
+		start_row = EMARK_CURY;
+		end_row   = ECURY;
+	} else if (EMARK_CURY > ECURY) {
+		start_row = ECURY;
+		end_row   = EMARK_CURY;
 	} else {
-		start_row = end_row = editor.cury;
+		start_row = end_row = ECURY;
 	}
 
 	/* Ensure bounds are valid */
@@ -916,46 +720,47 @@ indent_region(void)
 		start_row = 0;
 	}
 
-	if (end_row >= editor.nrows) {
-		end_row = editor.nrows - 1;
+	if (end_row >= ENROWS) {
+		end_row = ENROWS - 1;
 	}
 
-	if (start_row >= editor.nrows || end_row < 0) {
+	if (start_row >= ENROWS || end_row < 0) {
 		return;
 	}
 
-	/* Prepend a tab character to every row in the region */
 	for (i = start_row; i <= end_row; i++) {
-		row_insert_ch(&editor.row[i], 0, '\t');
+		row_insert_ch(&EROW[i], 0, '\t');
 	}
 
-	/* Move cursor to beginning of the line it was on */
-	editor.curx = 0;
-	editor.dirty++;
+	ECURX = 0;
+	EDIRTY++;
 }
 
 
 void
 unindent_region(void)
 {
-	int	 start_row, end_row, i, del;
-	abuf	*row;
+	int	 start_row = 0;
+	int	 end_row   = 0;
+	int	 i         = 0;
+	int	 del       = 0;
+	abuf	*row       = NULL;
 
-	if (!editor.mark_set) {
+	if (!EMARK_SET) {
 		editor_set_status("Mark not set.");
 		return;
 	}
 
-	if (editor.mark_cury < editor.cury ||
-	    (editor.mark_cury == editor.cury && editor.mark_curx < editor.curx)) {
-		start_row = editor.mark_cury;
-		end_row   = editor.cury;
-	    } else {
-	    	start_row = editor.cury;
-	    	end_row   = editor.mark_cury;
-	    }
+	if (EMARK_CURY < ECURY ||
+	    (EMARK_CURY == ECURY && EMARK_CURX < ECURX)) {
+		start_row = EMARK_CURY;
+		end_row   = ECURY;
+	} else {
+		start_row = ECURY;
+		end_row   = EMARK_CURY;
+	}
 
-	if (start_row >= editor.nrows) {
+	if (start_row >= ENROWS) {
 		return;
 	}
 
@@ -976,8 +781,8 @@ unindent_region(void)
 		} else if (row->b[0] == ' ') {
 			del = 0;
 
-			while (del < TAB_STOP && del < (int)row->size &&
-				row->b[del] == ' ') {
+			while (del < TAB_STOP && del < (int) row->size &&
+			       row->b[del] == ' ') {
 				del++;
 			}
 
@@ -1000,12 +805,12 @@ unindent_region(void)
 void
 delete_region(void)
 {
-	int count = count_chars_from_cursor_to_mark();
-	int killed = 0;
-	int curx = editor.curx;
-	int cury = editor.cury;
-	int markx = editor.mark_curx;
-	int marky = editor.mark_cury;
+	int	 count  = count_chars_from_cursor_to_mark();
+	int	 killed = 0;
+	int	 curx   = editor.curx;
+	int	 cury   = editor.cury;
+	int	 markx  = editor.mark_curx;
+	int	 marky  = editor.mark_cury;
 
 
 	if (!editor.mark_set) {
@@ -1046,12 +851,12 @@ jump_to_position(int col, int row)
 
 	if (col < 0) {
 		col = 0;
-	} else if (col > (int)editor.row[row].size) {
-		col = (int)editor.row[row].size;
+	} else if (row >= 0 && row < ENROWS && col > (int) EROW[row].size) {
+		col = (int) EROW[row].size;
 	}
 
-	editor.curx = col;
-	editor.cury = row;
+	ECURX = col;
+	ECURY = row;
 
 	display_refresh();
 }
@@ -1060,17 +865,17 @@ jump_to_position(int col, int row)
 void
 goto_line(void)
 {
-	int lineno = 0;
-	char *query = editor_prompt("Line: %s", NULL);
+	int	 lineno = 0;
+	char	*query  = editor_prompt("Line: %s", NULL);
 
 	if (query == NULL) {
 		return;
 	}
 
 	lineno = atoi(query);
-	if (lineno < 1 || lineno >= editor.nrows) {
+	if (lineno < 1 || lineno >= ENROWS) {
 		editor_set_status("Line number must be between 1 and %d.",
-		                  editor.nrows);
+		                  ENROWS);
 		free(query);
 		return;
 	}
@@ -1083,17 +888,17 @@ goto_line(void)
 int
 cursor_at_eol(void)
 {
-	assert(editor.curx >= 0);
-	assert(editor.cury >= 0);
-	assert(editor.cury <= editor.nrows);
-	assert(editor.curx <= (int)editor.row[editor.cury].size);
+	assert(ECURX >= 0);
+	assert(ECURY >= 0);
+	assert(ECURY <= ENROWS);
+	assert(ECURX <= (int)EROW[ECURY].size);
 
-	return editor.curx == (int)editor.row[editor.cury].size;
+	return ECURX == (int)EROW[ECURY].size;
 }
 
 
 int
-iswordchar(unsigned char c)
+iswordchar(const unsigned char c)
 {
 	return isalnum(c) || c == '_' || strchr("/!@#$%^&*+-=~", c) != NULL;
 }
@@ -1106,17 +911,17 @@ find_next_word(void)
 		move_cursor(ARROW_RIGHT, 1);
 	}
 
-	if (iswordchar(editor.row[editor.cury].b[editor.curx])) {
-		while (!isspace(editor.row[editor.cury].b[editor.curx]) && !
-			cursor_at_eol()) {
+	if (iswordchar(EROW[ECURY].b[ECURX])) {
+		while (!isspace(EROW[ECURY].b[ECURX]) && !
+		       cursor_at_eol()) {
 			move_cursor(ARROW_RIGHT, 1);
 		}
 
 		return;
 	}
 
-	if (isspace(editor.row[editor.cury].b[editor.curx])) {
-		while (isspace(editor.row[editor.cury].b[editor.curx])) {
+	if (isspace(EROW[ECURY].b[ECURX])) {
+		while (isspace(EROW[ECURY].b[ECURX])) {
 			move_cursor(ARROW_RIGHT, 1);
 		}
 
@@ -1133,9 +938,9 @@ delete_next_word(void)
 		deletech(KILLRING_APPEND);
 	}
 
-	if (iswordchar(editor.row[editor.cury].b[editor.curx])) {
-		while (!isspace(editor.row[editor.cury].b[editor.curx]) && !
-			cursor_at_eol()) {
+	if (iswordchar(EROW[ECURY].b[ECURX])) {
+		while (!isspace(EROW[ECURY].b[ECURX]) && !
+		       cursor_at_eol()) {
 			move_cursor(ARROW_RIGHT, 1);
 			deletech(KILLRING_APPEND);
 		}
@@ -1143,8 +948,8 @@ delete_next_word(void)
 		return;
 	}
 
-	if (isspace(editor.row[editor.cury].b[editor.curx])) {
-		while (isspace(editor.row[editor.cury].b[editor.curx])) {
+	if (isspace(EROW[ECURY].b[ECURX])) {
+		while (isspace(EROW[ECURY].b[ECURX])) {
 			move_cursor(ARROW_RIGHT, 1);
 			deletech(KILLRING_APPEND);
 		}
@@ -1164,7 +969,7 @@ find_prev_word(void)
 	move_cursor(ARROW_LEFT, 1);
 
 	while (cursor_at_eol() || isspace(
-		editor.row[editor.cury].b[editor.curx])) {
+		       editor.row[editor.cury].b[editor.curx])) {
 		if (editor.cury == 0 && editor.curx == 0) {
 			return;
 		}
@@ -1173,7 +978,7 @@ find_prev_word(void)
 	}
 
 	while (editor.curx > 0 && !isspace(
-		editor.row[editor.cury].b[editor.curx - 1])) {
+		       editor.row[editor.cury].b[editor.curx - 1])) {
 		move_cursor(ARROW_LEFT, 1);
 	}
 }
@@ -1211,7 +1016,7 @@ delete_prev_word(void)
 
 
 void
-delete_row(int at)
+delete_row(const int at)
 {
 	abuf	*row = NULL;
 
@@ -1265,7 +1070,7 @@ delete_row(int at)
 
 
 void
-row_append_row(abuf *row, char *s, int len)
+row_append_row(abuf *row, const char *s, const int len)
 {
 	ab_append(row, s, len);
 	editor.dirty++;
@@ -1273,12 +1078,12 @@ row_append_row(abuf *row, char *s, int len)
 
 
 void
-row_insert_ch(abuf *row, int at, int16_t c)
+row_insert_ch(abuf *row, int at, const int16_t c)
 {
 	/*
 	 * row_insert_ch just concerns itself with how to update a row.
 	 */
-	if ((at < 0) || (at > (int)row->size)) {
+	if (at < 0 || at > (int)row->size) {
 		at = (int)row->size;
 	}
 	assert(c > 0);
@@ -1292,7 +1097,7 @@ row_insert_ch(abuf *row, int at, int16_t c)
 
 
 void
-row_delete_ch(abuf *row, int at)
+row_delete_ch(abuf *row, const int at)
 {
 	if (at < 0 || at >= (int)row->size) {
 		return;
@@ -1306,7 +1111,7 @@ row_delete_ch(abuf *row, int at)
 
 
 void
-insertch(int16_t c)
+insertch(const int16_t c)
 {
 	/*
 	 * insert_ch doesn't need to worry about how to update a
@@ -1397,22 +1202,46 @@ deletech(uint8_t op)
 void
 open_file(const char *filename)
 {
-	char	*line = NULL;
+	char	*line    = NULL;
 	size_t	 linecap = 0;
-	ssize_t	 linelen;
-	FILE	*fp = NULL;
+	ssize_t	 linelen = 0;
+	FILE	*fp      = NULL;
+	buffer	*cur     = NULL;
 
+	/* Ensure we have a current buffer to load into */
+	cur = buffer_current();
+	if (cur == NULL) {
+		return;
+	}
+
+	/* Clear editor working set and the current buffer’s contents so we load
+	 * fresh data instead of appending to any previous rows. */
 	reset_editor();
+
+	if (EROW != NULL && ENROWS > 0) {
+		for (int i = 0; i < ENROWS; i++) {
+			ab_free(&EROW[i]);
+		}
+		free(EROW);
+		EROW   = NULL;
+		ENROWS = 0;
+	}
+
+	/* Reset cursor/scroll positions for the buffer */
+	ECURX    = ECURY = 0;
+	ERX      = 0;
+	EROWOFFS = ECOLOFFS = 0;
 
 	if (filename == NULL) {
 		return;
 	}
 
-	editor.filename = strdup(filename);
-	assert(editor.filename != NULL);
+	EFILENAME = strdup(filename);
+	assert(EFILENAME != NULL);
 
-	editor.dirty = 0;
-	if ((fp = fopen(editor.filename, "r")) == NULL) {
+	EDIRTY = 0;
+	fp = fopen(EFILENAME, "r");
+	if (fp == NULL) {
 		if (errno == ENOENT) {
 			editor_set_status("[new file]");
 			return;
@@ -1422,18 +1251,24 @@ open_file(const char *filename)
 
 	while ((linelen = getline(&line, &linecap, fp)) != -1) {
 		if (linelen != -1) {
-			while ((linelen > 0) && ((line[linelen - 1] == '\r') ||
-				(line[linelen - 1] == '\n'))) {
+			while (linelen > 0 && (line[linelen - 1] == '\r' ||
+			                       line[linelen - 1] == '\n')) {
 				linelen--;
 			}
 
-			erow_insert(editor.nrows, line, linelen);
+			erow_insert(ENROWS, line, (int)linelen);
 		}
 	}
 
 	free(line);
 	line = NULL;
 	fclose(fp);
+
+	/* sync changes back */
+	editor.row      = EROW;
+	editor.nrows    = ENROWS;
+	editor.filename = EFILENAME;
+	editor.dirty    = EDIRTY;
 }
 
 
@@ -1443,14 +1278,14 @@ open_file(const char *filename)
 char
 *rows_to_buffer(int *buflen)
 {
-	int len = 0;
-	int j;
-	char *buf = NULL;
-	char *p = NULL;
+	int	 len = 0;
+	int	 j   = 0;
+	char	*buf = NULL;
+	char	*p   = NULL;
 
-	for (j = 0; j < editor.nrows; j++) {
+	for (j = 0; j < ENROWS; j++) {
 		/* extra byte for newline */
-		len += editor.row[j].size + 1;
+		len += EROW[j].size + 1;
 	}
 
 	if (len == 0) {
@@ -1458,13 +1293,13 @@ char
 	}
 
 	*buflen = len;
-	buf = malloc(len);
+	buf     = malloc(len);
 	assert(buf != NULL);
 	p = buf;
 
-	for (j = 0; j < editor.nrows; j++) {
-		memcpy(p, editor.row[j].b, editor.row[j].size);
-		p += editor.row[j].size;
+	for (j = 0; j < ENROWS; j++) {
+		memcpy(p, EROW[j].b, EROW[j].size);
+		p += EROW[j].size;
 		*p++ = '\n';
 	}
 
@@ -1475,10 +1310,10 @@ char
 int
 save_file(void)
 {
-	int fd = -1;
-	int len;
-	int status = 1; /* will be used as exit code */
-	char *buf;
+	int	 fd     = -1;
+	int	 len    = 0;
+	int	 status = 1;
+	char	*buf    = NULL;
 
 	if (!editor.dirty) {
 		editor_set_status("No changes to save.");
@@ -1494,7 +1329,8 @@ save_file(void)
 	}
 
 	buf = rows_to_buffer(&len);
-	if ((fd = open(editor.filename, O_RDWR | O_CREAT, 0644)) == -1) {
+	fd = open(editor.filename, O_RDWR | O_CREAT, 0644);
+	if (fd == -1) {
 		goto save_exit;
 	}
 
@@ -1514,8 +1350,10 @@ save_file(void)
 	status = 0;
 
 save_exit:
-	if (fd)
+	if (fd) {
 		close(fd);
+	}
+
 	if (buf) {
 		free(buf);
 		buf = NULL;
@@ -1538,25 +1376,27 @@ save_exit:
 
 
 uint16_t
-is_arrow_key(int16_t c)
+is_arrow_key(const int16_t c)
 {
- switch (c) {
-	case ARROW_DOWN:
-	case ARROW_LEFT:
-	case ARROW_RIGHT:
-	case ARROW_UP:
-	case CTRL_KEY('p'):
-	case CTRL_KEY('n'):
-	case CTRL_KEY('f'):
-	case CTRL_KEY('b'):
-	case CTRL_KEY('a'):
-	case CTRL_KEY('e'):
-	case END_KEY:
-	case HOME_KEY:
-	case PG_DN:
-	case PG_UP:
-		return 1;
-	};
+	switch (c) {
+		case ARROW_DOWN:
+		case ARROW_LEFT:
+		case ARROW_RIGHT:
+		case ARROW_UP:
+		case CTRL_KEY('p'):
+		case CTRL_KEY('n'):
+		case CTRL_KEY('f'):
+		case CTRL_KEY('b'):
+		case CTRL_KEY('a'):
+		case CTRL_KEY('e'):
+		case END_KEY:
+		case HOME_KEY:
+		case PG_DN:
+		case PG_UP:
+			return 1;
+		default:
+			return 0;
+	}
 
 	return 0;
 }
@@ -1565,10 +1405,9 @@ is_arrow_key(int16_t c)
 int16_t
 get_keypress(void)
 {
-	char seq[3];
-	/* read raw byte so UTF-8 bytes (>=0x80) are not sign-extended */
-	unsigned char uc = 0;
-	int16_t c;
+	char		 seq[3] = {0};
+	unsigned char	 uc     = 0;
+	int16_t		 c      = 0;
 
 	if (read(STDIN_FILENO, &uc, 1) == -1) {
 		die("get_keypress:read");
@@ -1577,15 +1416,20 @@ get_keypress(void)
 	c = (int16_t)uc;
 
 	if (c == 0x1b) {
-		if (read(STDIN_FILENO, &seq[0], 1) != 1)
+		if (read(STDIN_FILENO, &seq[0], 1) != 1) {
 			return c;
-		if (read(STDIN_FILENO, &seq[1], 1) != 1)
+		}
+
+		if (read(STDIN_FILENO, &seq[1], 1) != 1) {
 			return c;
+		}
 
 		if (seq[0] == '[') {
 			if (seq[1] < 'A') {
-				if (read(STDIN_FILENO, &seq[2], 1) != 1)
+				if (read(STDIN_FILENO, &seq[2], 1) != 1) {
 					return c;
+				}
+
 				if (seq[2] == '~') {
 					switch (seq[1]) {
 					case '1':
@@ -1602,6 +1446,8 @@ get_keypress(void)
 						return HOME_KEY;
 					case '8':
 						return END_KEY;
+					default:
+						break;
 					}
 				}
 			} else {
@@ -1618,9 +1464,8 @@ get_keypress(void)
 					return END_KEY;
 				case 'H':
 					return HOME_KEY;
-
 				default:
-					/* nada */ ;
+					break;
 				}
 			}
 		} else if (seq[0] == 'O') {
@@ -1629,6 +1474,8 @@ get_keypress(void)
 				return END_KEY;
 			case 'H':
 				return HOME_KEY;
+			default:
+				break;
 			}
 		}
 
@@ -1640,7 +1487,7 @@ get_keypress(void)
 
 
 char
-*editor_prompt(char *prompt, void (*cb)(char*, int16_t))
+*editor_prompt(const char *prompt, void (*cb)(char*, int16_t))
 {
 	size_t		 bufsz = 128;
 	char		*buf = malloc(bufsz);
@@ -1652,58 +1499,56 @@ char
 	}
 
 	buf[0] = '\0';
+	while (1) {
+		editor_set_status(prompt, buf);
+		display_refresh();
 
- while (1) {
-        editor_set_status(prompt, buf);
-        display_refresh();
+		while ((c = get_keypress()) <= 0);
+		if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
+			if (buflen != 0) {
+				buf[--buflen] = '\0';
+			}
+		} else if (c == ESC_KEY || c == CTRL_KEY('g')) {
+			editor_set_status("");
+			if (cb) {
+				cb(buf, c);
+			}
 
-        while ((c = get_keypress()) <= 0);
-        if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
-            if (buflen != 0) {
-                buf[--buflen] = '\0';
-            }
-        } else if (c == ESC_KEY || c == CTRL_KEY('g')) {
-            editor_set_status("");
-            if (cb) {
-                cb(buf, c);
-            }
+			free(buf);
+			return NULL;
+		} else if (c == '\r') {
+			if (buflen != 0) {
+				editor_set_status("");
+				if (cb) {
+					cb(buf, c);
+				}
 
-            free(buf);
-            return NULL;
-        } else if (c == '\r') {
-            if (buflen != 0) {
-                editor_set_status("");
-                if (cb) {
-                    cb(buf, c);
-                }
+				return buf;
+			}
+		} else if (c == TAB_KEY) {
+			/* invoke completion callback without inserting a TAB */
+			if (cb) {
+				cb(buf, c);
+			}
+			/* keep buflen in sync in case callback edited buf */
+			buflen = strlen(buf);
+		} else if (c >= 0x20 && c < 0x7f) {
+			if (buflen == bufsz - 1) {
+				bufsz *= 2;
+				buf = realloc(buf, bufsz);
+				assert(buf != NULL);
+			}
 
-                return buf;
-            }
-        } else if (c == TAB_KEY) {
-            /* invoke completion callback without inserting a TAB */
-            if (cb) {
-                cb(buf, c);
-            }
-            /* keep buflen in sync in case callback edited buf */
-            buflen = strlen(buf);
-        } else if (c >= 0x20 && c < 0x7f) {
-            if (buflen == bufsz - 1) {
-                bufsz *= 2;
-                buf = realloc(buf, bufsz);
+			buf[buflen++] = (char) (c & 0xff);
+			buf[buflen]   = '\0';
+		}
 
-                assert(buf != NULL);
-            }
-
-            buf[buflen++] = (char)(c & 0xff);
-            buf[buflen] = '\0';
-        }
-
-        if (cb) {
-            cb(buf, c);
-            /* keep buflen in sync with any changes the callback made */
-            buflen = strlen(buf);
-        }
-    }
+		if (cb) {
+			cb(buf, c);
+			/* keep buflen in sync with any changes the callback made */
+			buflen = strlen(buf);
+		}
+	}
 
 	free(buf);
 	return NULL;
@@ -1713,15 +1558,19 @@ char
 void
 editor_find_callback(char* query, int16_t c)
 {
-	static int	 last_match = -1;       /* row index of last match */
-	static int	 direction = 1;         /* 1 = forward, -1 = backward */
-	static char	 last_query[128] = {0}; /* remember last successful query */
-	abuf		*row;
-	int		 saved_cx = editor.curx;
-	int		 saved_cy = editor.cury;
-	size_t		 qlen = strlen(query);
-	char		*match;
-	int		 i, skip;
+	static int	 last_match      = -1;  /* row index of last match */
+	static int	 direction       = 1;   /* 1 = forward, -1 = back */
+	static char	 last_query[128] = {0}; /* last successful query */
+	abuf		*row             = NULL;
+	const int	 saved_cx        = editor.curx;
+	const int	 saved_cy	 = editor.cury;
+	const size_t	 qlen		 = strlen(query);
+	const char	*match           = NULL;
+	const char	*search_start    = NULL;
+	int		 i               = 0;
+	int		 skip            = 0;
+	int		 start_row       = 0;
+	int		 start_col       = 0;
 
 	if (c == '\r' || c == ESC_KEY || c == CTRL_KEY('g')) {
 		last_match = -1;
@@ -1741,8 +1590,8 @@ editor_find_callback(char* query, int16_t c)
 		strcpy(last_query, query);
 	}
 
-	int start_row = editor.cury;
-	int start_col = editor.curx;
+	start_row = editor.cury;
+	start_col = editor.curx;
 
 	if (last_match == -1) {
 		if (direction == 1) {
@@ -1763,6 +1612,7 @@ editor_find_callback(char* query, int16_t c)
 				break;
 			}
 		}
+
 		if (current < 0) {
 			current = editor.nrows - 1;
 			if (wrapped++) {
@@ -1772,7 +1622,7 @@ editor_find_callback(char* query, int16_t c)
 
 		row = &editor.row[current];
 
-		char* search_start = row->b;
+		search_start = row->b;
 		if (current == start_row && direction == 1 && wrapped == 0) {
 			skip = start_col;
 			if (skip > (int)row->size) {
@@ -1810,10 +1660,10 @@ editor_find(void)
 {
 	/* TODO(kyle): consider making this an abuf */
 	char *query;
-	int scx = editor.curx;
-	int scy = editor.cury;
-	int sco = editor.coloffs;
-	int sro = editor.rowoffs;
+	int scx = ECURX;
+	int scy = ECURY;
+	int sco = ECOLOFFS;
+	int sro = EROWOFFS;
 
 	query = editor_prompt("Search (ESC to cancel): %s",
 	                      editor_find_callback);
@@ -1821,10 +1671,10 @@ editor_find(void)
 		free(query);
 		query = NULL;
 	} else {
-		editor.curx = scx;
-		editor.cury = scy;
-		editor.coloffs = sco;
-		editor.rowoffs = sro;
+		ECURX    = scx;
+		ECURY    = scy;
+		ECOLOFFS = sco;
+		EROWOFFS = sro;
 	}
 
 	display_refresh();
@@ -1842,11 +1692,18 @@ editor_openfile(void)
         return;
     }
 
-    /* Open into a new buffer */
-    int nb = buffer_add_empty();
-    buffer_switch(nb);
-    open_file(filename);
-    buffer_save_current();
+    /* If the only buffer is an unnamed, empty buffer, reuse it */
+    buffer *cur = buffer_current();
+    if (editor.bufcount == 1 && buffer_is_unnamed_and_empty(cur)) {
+        open_file(filename);
+        buffer_save_current();
+    } else {
+        /* Open into a new buffer */
+        int nb = buffer_add_empty();
+        buffer_switch(nb);
+        open_file(filename);
+        buffer_save_current();
+    }
     free(filename);
 }
 
@@ -1899,12 +1756,12 @@ first_nonwhitespace(abuf *row)
 
 
 void
-move_cursor_once(int16_t c, int interactive)
+move_cursor_once(const int16_t c, int interactive)
 {
-	abuf	*row;
+	abuf	*row  = NULL;
 	int	 reps = 0;
 
-	row = (editor.cury >= editor.nrows) ? NULL : &editor.row[editor.cury];
+	row = editor.cury >= editor.nrows ? NULL : &editor.row[editor.cury];
 
 	switch (c) {
 	case ARROW_UP:
@@ -1923,7 +1780,7 @@ move_cursor_once(int16_t c, int interactive)
 	case CTRL_KEY('n'):
 		if (editor.cury < editor.nrows - 1) {
 			editor.cury++;
-			row = (editor.cury >= editor.nrows)
+			row = editor.cury >= editor.nrows
 				      ? NULL
 				      : &editor.row[editor.cury];
 
@@ -1962,7 +1819,7 @@ move_cursor_once(int16_t c, int interactive)
 			}
 		} else if (editor.cury > 0) {
 			editor.cury--;
-			editor.curx = editor.row[editor.cury].size;
+			editor.curx = (int)editor.row[editor.cury].size;
 
 			row = &editor.row[editor.cury];
 			while (editor.curx > 0 &&
@@ -1999,7 +1856,7 @@ move_cursor_once(int16_t c, int interactive)
 		if (editor.cury >= editor.nrows) {
 			break;
 		}
-		editor.curx = editor.row[editor.cury].size;
+		editor.curx = (int)editor.row[editor.cury].size;
 		break;
 	default:
 		break;
@@ -2008,7 +1865,7 @@ move_cursor_once(int16_t c, int interactive)
 
 
 void
-move_cursor(int16_t c, int interactive)
+move_cursor(const int16_t c, const int interactive)
 {
 	int	 n = uarg_get();
 
@@ -2053,7 +1910,7 @@ uarg_start(void)
 {
 	if (editor.uarg == 0) {
 		editor.ucount = 0;
-	}else {
+	} else {
 		if (editor.ucount == 0) {
 			editor.ucount = 1;
 		}
@@ -2098,7 +1955,7 @@ uarg_get(void)
 
 
 void
-process_kcommand(int16_t c)
+process_kcommand(const int16_t c)
 {
 	char	*buf   = NULL;
 	int	 len   = 0;
@@ -2164,8 +2021,8 @@ process_kcommand(int16_t c)
 
 		reps = uarg_get();
 		while (reps--) {
-			while ((editor.row[editor.cury].size -
-				editor.curx) > 0) {
+			while ((EROW[ECURY].size -
+			        editor.curx) > 0) {
 				process_normal(DEL_KEY);
 			}
 			if (reps) {
@@ -2279,10 +2136,14 @@ process_kcommand(int16_t c)
 	case 'u':
 		reps = uarg_get();
 
-		while (reps--);
+		while (reps--) {}
 		editor_set_status("Undo not implemented.");
 		break;
 	case 'U':
+		reps = uarg_get();
+
+		while (reps--) {}
+		editor_set_status("Redo not implemented.");
 		break;
 	case 'y':
 		reps = uarg_get();
@@ -2418,7 +2279,7 @@ process_normal(int16_t c)
 
 
 void
-process_escape(int16_t c)
+process_escape(const int16_t c)
 {
 	int	 reps = 0;
 
@@ -2486,7 +2347,7 @@ process_escape(int16_t c)
 int
 process_keypress(void)
 {
-	int16_t c = get_keypress();
+	const int16_t	 c = get_keypress();
 
 
 	/* we didn't actually read a key */
@@ -2519,11 +2380,11 @@ process_keypress(void)
 char
 *get_cloc_code_lines(const char *filename)
 {
-	char	 command[512];
-	char	 outbuf[256];
-	char	*result = NULL;
-	FILE	*pipe = NULL;
-	size_t	 len = 0;
+	char	 command[512] = {0};
+	char	 outbuf[256]  = {0};
+	char	*result       = NULL;
+	FILE	*pipe         = NULL;
+	size_t	 len          = 0;
 
 	if (editor.filename == NULL) {
 		snprintf(command, sizeof(command),
@@ -2597,21 +2458,21 @@ dump_pidfile(void)
 }
 
 
-/* terminal control moved to term.c */
-
-
 void
 draw_rows(abuf *ab)
 {
 	assert(editor.cols >= 0);
 
-	abuf	*row;
+	abuf	*row              = NULL;
 	char	 buf[editor.cols];
-	char	 c;
-	size_t	 j;
-	int	 len, filerow, padding;
-	int	 printed, rx;
-	int	 y;
+	char	 c                = 0;
+	size_t	 j                = 0;
+	int	 len              = 0;
+	int	 filerow          = 0;
+	int	 padding          = 0;
+	int	 printed          = 0;
+	int	 rx               = 0;
+	int	 y                = 0;
 
 	for (y = 0; y < editor.rows; y++) {
 		filerow = y + editor.rowoffs;
@@ -2635,7 +2496,7 @@ draw_rows(abuf *ab)
 				ab_append(ab, "|", 1);
 			}
 		} else {
-			row = &editor.row[filerow];
+			row = &EROW[filerow];
 			j = 0;
 			rx = printed = 0;
 
@@ -2697,11 +2558,12 @@ status_mode_char(void)
 void
 draw_status_bar(abuf *ab)
 {
-	char status[editor.cols];
-	char rstatus[editor.cols];
-	char mstatus[editor.cols];
+	char	 status[editor.cols];
+	char	 rstatus[editor.cols];
+	char	 mstatus[editor.cols];
 
-	int len, rlen;
+	int	 len  = 0;
+	int	 rlen = 0;
 
 	len = snprintf(status,
 	               sizeof(status),
@@ -2747,14 +2609,14 @@ draw_status_bar(abuf *ab)
 void
 draw_message_line(abuf *ab)
 {
-	int len = strlen(editor.msg);
+	int	 len = (int)strlen(editor.msg);
 
 	ab_append(ab, ESCSEQ "K", 3);
 	if (len > editor.cols) {
 		len = editor.cols;
 	}
 
-	if (len && ((time(NULL) - editor.msgtm) < MSG_TIMEO)) {
+	if (len && time(NULL) - editor.msgtm < MSG_TIMEO) {
 		ab_append(ab, editor.msg, len);
 	}
 }
@@ -2763,7 +2625,7 @@ draw_message_line(abuf *ab)
 void
 scroll(void)
 {
-	abuf	*row = NULL;
+	const abuf	*row = NULL;
 
 	editor.rx = 0;
 	if (editor.cury < editor.nrows) {
@@ -2792,8 +2654,8 @@ scroll(void)
 void
 display_refresh(void)
 {
-	char	 buf[32];
-	abuf	 ab = ABUF_INIT;
+	char	 buf[32] = {0};
+	abuf	 ab      = ABUF_INIT;
 
 	scroll();
 
@@ -2814,30 +2676,17 @@ display_refresh(void)
 	/* ab_append(&ab, ESCSEQ "1;2H", 7); */
 	ab_append(&ab, ESCSEQ "?25h", 6);
 
-	kwrite(STDOUT_FILENO, ab.b, ab.size);
+	kwrite(STDOUT_FILENO, ab.b, (int)ab.size);
 	ab_free(&ab);
-}
-
-
-void
-editor_set_status(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vsnprintf(editor.msg, sizeof(editor.msg), fmt, ap);
-	va_end(ap);
-
-	editor.msgtm = time(NULL);
 }
 
 
 int
 kbhit(void)
 {
-	int	 bytes_waiting;
-	ioctl(STDIN_FILENO, FIONREAD, &bytes_waiting);
+	int	 bytes_waiting = 0;
 
+	ioctl(STDIN_FILENO, FIONREAD, &bytes_waiting);
 	if (bytes_waiting < 0) {
 		editor_set_status("kbhit: FIONREAD failed: %s", strerror(errno));
 
@@ -2853,11 +2702,12 @@ kbhit(void)
 void
 loop(void)
 {
-	int up = 1; /* update on the first runthrough */
+	int	up = 1; /* update on the first runthrough */
 
 	while (1) {
-		if (up)
+		if (up) {
 			display_refresh();
+		}
 
 		/*
 		 * ke should only refresh the display if it has received keyboard
@@ -2865,7 +2715,8 @@ loop(void)
 		 * handling pastes without massive screen flicker.
 		 *
 		 */
-		if ((up = process_keypress()) != 0) {
+		up = process_keypress();
+		if (up  != 0) {
 			while (kbhit()) {
 				process_keypress();
 			}
@@ -2877,14 +2728,7 @@ loop(void)
 void
 enable_debugging(void)
 {
-	time_t now;
-
 	dump_pidfile();
-
-	now = time(&now);
-	printf("time: %s\n", ctime(&now));
-	fprintf(stderr, "Debug log started %s\n", ctime(&now));
-	fflush(stderr);
 }
 
 
@@ -2948,78 +2792,82 @@ install_signal_handlers(void)
 int
 main(int argc, char *argv[])
 {
-    int	 opt;
-    int	 debug  = 0;
-    /* argv processing for multiple files and +lineno */
-    int	 pending_line = 0;   /* line number that applies to next filename */
-    int	 first_loaded = 0;   /* whether we've opened the first file into initial buffer */
+	const char	*arg          = NULL;
+	const char	*path         = NULL;
+	int		 i            = 0;
+	int		 v            = 0;
+	int		 nb           = 0;
+	int		 opt          = 0;
+	int		 debug        = 0;
+	int		 pending_line = 0;   /* line number for the next filename */
+	int		 first_loaded = 0;   /* has a filed been loaded already? */
 
-    install_signal_handlers();
+	install_signal_handlers();
 
-    while ((opt = getopt(argc, argv, "df:")) != -1) {
-        switch (opt) {
-        case 'd':
-            debug = 1;
-            break;
-        default:
-            fprintf(stderr, "Usage: ke [-d] [-f logfile] [ +N ] [file ...]\n");
-            exit(EXIT_FAILURE);
-        }
-    }
+	while ((opt = getopt(argc, argv, "df:")) != -1) {
+		if (opt == 'd') {
+			debug = 1;
+		} else {
+			fprintf(stderr, "Usage: ke [-d] [-f logfile] [ +N ] [file ...]\n");
+			exit(EXIT_FAILURE);
+		}
+	}
 
-    argc -= optind;
-    argv += optind;
+	argc -= optind;
+	argv += optind;
 
 	setlocale(LC_ALL, "");
 	if (debug) {
 		enable_debugging();
 	}
 
-    setup_terminal();
-    init_editor();
+	setup_terminal();
+	init_editor();
 
-    /* Process remaining argv: accept multiple filenames; a "+N" applies to next filename */
-    for (int i = 0; i < argc; i++) {
-        const char *arg = argv[i];
-        if (arg[0] == '+') {
-            /* parse line number; if invalid, set to 0 (ignored) */
-            const char *p = arg + 1;
-            int v = 0;
-            if (*p != '\0') {
-                v = atoi(p);
-                if (v < 1) v = 0;
-            }
-            pending_line = v;
-            continue;
-        }
+	/* start processing file names. if an arg starts with a '+',
+	 * interpret it as the line to jump to.
+	 */
+	for (i = 0; i < argc; i++) {
+		arg = argv[i];
+		if (arg[0] == '+') {
+			path = arg + 1;
 
-        /* It's a filename */
-        if (!first_loaded) {
-            /* initial empty buffer already exists; load into it */
-            open_file(arg);
-            if (pending_line > 0) {
-                jump_to_position(0, pending_line - 1);
-                pending_line = 0;
-            }
-            buffer_save_current();
-            first_loaded = 1;
-        } else {
-            /* create and switch to a new buffer for subsequent files */
-            int nb = buffer_add_empty();
-            buffer_switch(nb);
-            open_file(arg);
-            if (pending_line > 0) {
-                jump_to_position(0, pending_line - 1);
-                pending_line = 0;
-            }
-            buffer_save_current();
-        }
-    }
+			v = 0;
+			if (*path != '\0') {
+				v = atoi(path);
+				if (v < 1) v = 0;
+			}
 
-    editor_set_status("C-k q to exit / C-k d to dump core");
+			pending_line = v;
+			continue;
+		}
 
-    display_clear(NULL);
-    loop();
+		if (!first_loaded) {
+			open_file(arg);
+			if (pending_line > 0) {
+				jump_to_position(0, pending_line - 1);
+				pending_line = 0;
+			}
 
-    return 0;
+			buffer_save_current();
+			first_loaded = 1;
+		} else {
+			nb = buffer_add_empty();
+			buffer_switch(nb);
+			open_file(arg);
+			if (pending_line > 0) {
+				jump_to_position(0, pending_line - 1);
+				pending_line = 0;
+			}
+
+			buffer_save_current();
+		}
+	}
+
+	editor_set_status("C-k q to exit / C-k d to dump core");
+
+	display_clear(NULL);
+	loop();
+
+	return 0;
 }
