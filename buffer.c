@@ -71,6 +71,7 @@ buffer_collect_prefix_matches(const char *prefix, int *out_idx, const int max_ou
 	size_t	 plen    = (prefix ? strlen(prefix) : 0);
 
 	for (int i = 0; i < editor.bufcount; i++) {
+		matched = 0;
 		b = editor.buffers[i];
 
 		const char *cand1 = b->filename;
@@ -267,9 +268,25 @@ buffers_init(void)
 	editor.buffers  = NULL;
 	editor.bufcount = 0;
 	editor.curbuf   = -1;
+	editor.bufcap	= 0;
 
 	idx = buffer_add_empty();
 	buffer_switch(idx);
+}
+
+
+static void
+buffer_list_resize(void)
+{
+	buffer	**newlist = NULL;
+
+	if (editor.bufcount == (int)editor.bufcap) {
+		editor.bufcap = cap_growth((int)editor.bufcap, editor.bufcount + 1);
+
+		newlist = realloc(editor.buffers, sizeof(buffer *) * editor.bufcap);
+		assert(newlist != NULL);
+		editor.buffers = newlist;
+	}
 }
 
 
@@ -277,11 +294,9 @@ int
 buffer_add_empty(void)
 {
 	buffer	 *buf    = NULL;
-	buffer **newlist = realloc(editor.buffers, sizeof(buffer *) * (editor.bufcount + 1));
 	int	 idx     = 0;
 
-	assert(newlist != NULL);
-	editor.buffers = newlist;
+	buffer_list_resize();
 
 	buf = calloc(1, sizeof(buffer));
 	assert(buf != NULL);

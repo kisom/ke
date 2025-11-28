@@ -32,9 +32,10 @@ struct editor {
 	time_t		  msgtm;
 
 	/* Multi-buffer support */
-	struct buffer	**buffers; /* array of buffers */
+	struct buffer	**buffers;  /* array of buffers */
 	int		  bufcount; /* number of buffers */
-	int		  curbuf; /* current buffer index */
+	int		  curbuf;   /* current buffer index */
+	size_t		  bufcap;   /* current buffer capacity */
 };
 
 

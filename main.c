@@ -842,23 +842,37 @@ delete_region(void)
 void
 jump_to_position(int col, int row)
 {
-	/* clamp position */
-	if (row < 0) {
-		row = 0;
-	} else if (row > editor.nrows) {
-		row = editor.nrows - 1;
-	}
+    /* Handle empty buffer safely */
+    if (ENROWS <= 0) {
+        ECURX = 0;
+        ECURY = 0;
+        /* Keep legacy globals in sync with per-buffer fields for rendering */
+        editor.curx = ECURX;
+        editor.cury = ECURY;
+        display_refresh();
+        return;
+    }
 
-	if (col < 0) {
-		col = 0;
-	} else if (row >= 0 && row < ENROWS && col > (int) EROW[row].size) {
-		col = (int) EROW[row].size;
-	}
+    /* clamp position using per-buffer dimensions */
+    if (row < 0) {
+        row = 0;
+    } else if (row >= ENROWS) {
+        row = ENROWS - 1;
+    }
 
-	ECURX = col;
-	ECURY = row;
+    if (col < 0) {
+        col = 0;
+    } else if (col > (int) EROW[row].size) {
+        col = (int) EROW[row].size;
+    }
 
-	display_refresh();
+    ECURX = col;
+    ECURY = row;
+    /* Keep legacy globals in sync with per-buffer fields for rendering */
+    editor.curx = ECURX;
+    editor.cury = ECURY;
+
+    display_refresh();
 }
 
 
@@ -872,13 +886,13 @@ goto_line(void)
 		return;
 	}
 
-	lineno = atoi(query);
-	if (lineno < 1 || lineno >= ENROWS) {
-		editor_set_status("Line number must be between 1 and %d.",
-		                  ENROWS);
-		free(query);
-		return;
-	}
+ lineno = atoi(query);
+ if (lineno < 1 || lineno > ENROWS) {
+     editor_set_status("Line number must be between 1 and %d.",
+                       ENROWS);
+     free(query);
+     return;
+ }
 
 	jump_to_position(0, lineno - 1);
 	free(query);

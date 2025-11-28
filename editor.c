@@ -92,6 +92,7 @@ init_editor(void)
 
 	/* initialize buffer system on first init */
 	if (editor.buffers == NULL && editor.bufcount == 0) {
+		editor.bufcap = 0;
 		buffers_init();
 	}
 }

@@ -6,6 +6,15 @@
 #include "core.h"
 
 
+static void
+abuf_grow(abuf *buf, size_t delta)
+{
+	if (buf->cap - buf->size < delta) {
+		ab_resize(buf, buf->cap + delta);
+	}
+}
+
+
 void
 ab_init(abuf *buf)
 {
@@ -38,6 +47,7 @@ ab_resize(abuf *buf, size_t cap)
 void
 ab_appendch(abuf *buf, char c)
 {
+	abuf_grow(buf, 1);
 	ab_append(buf, &c, 1);
 }
 
@@ -45,20 +55,10 @@ ab_appendch(abuf *buf, char c)
 void
 ab_append(abuf *buf, const char *s, size_t len)
 {
-	char	*nc = buf->b;
-	size_t	 sz = buf->size + len;
+	char	*nc = NULL;
 
-	if (sz >= buf->cap) {
-		while (sz > buf->cap) {
-			if (buf->cap == 0) {
-				buf->cap = 1;
-			} else {
-				buf->cap *= 2;
-			}
-		}
-		nc = realloc(nc, buf->cap);
-		assert(nc != NULL);
-	}
+	abuf_grow(buf, len);
+	nc = buf->b;
 
 	memcpy(&nc[buf->size], s, len);
 	buf->b = nc;
@@ -69,6 +69,8 @@ ab_append(abuf *buf, const char *s, size_t len)
 void
 ab_prependch(abuf *buf, const char c)
 {
+	abuf_grow(buf, 1);
+
 	ab_prepend(buf, &c, 1);
 }
 
@@ -76,7 +78,10 @@ ab_prependch(abuf *buf, const char c)
 void
 ab_prepend(abuf *buf, const char *s, const size_t len)
 {
-	char	*nc = realloc(buf->b, buf->size + len);
+	char	*nc = NULL;
+
+	abuf_grow(buf, len);
+	nc = buf->b;
 	assert(nc != NULL);
 
 	memmove(nc + len, nc, buf->size);
