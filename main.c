@@ -298,8 +298,15 @@ file_open_prompt_cb(char *buf, const int16_t key)
 			strncat(newbuf, "/", sizeof(newbuf) - strlen(newbuf) - 1);
 		}
 
-		strncpy(buf, newbuf[0] ? newbuf : names[0], 127);
-		buf[127] = '\0';
+		/* copy to input buffer (max 127 chars + NUL) avoiding truncation warnings */
+		do {
+			const char *src__ = newbuf[0] ? newbuf : names[0];
+			size_t cap__      = 128u;
+			size_t len__      = strnlen(src__, cap__ - 1);
+			memcpy(buf, src__, len__);
+			buf[len__] = '\0';
+		} while (0);
+
 		editor_set_status("Unique match: %s%s", names[0], isdir[0] ? "/" : "");
 	} else {
 		cur = strlen(base);
@@ -318,8 +325,14 @@ file_open_prompt_cb(char *buf, const int16_t key)
 			strncat(newbuf, base, sizeof(newbuf) - strlen(newbuf) - 1);
 		}
 
-		strncpy(buf, newbuf, 127);
-		buf[127] = '\0';
+		/* copy to input buffer (max 127 chars + NUL) avoiding truncation warnings */
+		do {
+			const char *src__ = newbuf;
+			size_t cap__      = 128u;
+			size_t len__      = strnlen(src__, cap__ - 1);
+			memcpy(buf, src__, len__);
+			buf[len__] = '\0';
+		} while (0);
 
 		size_t used = 0;
 		used += snprintf(msg + used, sizeof(msg) - used, "%d matches: ", n);
@@ -842,37 +855,36 @@ delete_region(void)
 void
 jump_to_position(int col, int row)
 {
-    /* Handle empty buffer safely */
-    if (ENROWS <= 0) {
-        ECURX = 0;
-        ECURY = 0;
-        /* Keep legacy globals in sync with per-buffer fields for rendering */
-        editor.curx = ECURX;
-        editor.cury = ECURY;
-        display_refresh();
-        return;
-    }
+	if (ENROWS <= 0) {
+		ECURX = 0;
+		ECURY = 0;
 
-    /* clamp position using per-buffer dimensions */
-    if (row < 0) {
-        row = 0;
-    } else if (row >= ENROWS) {
-        row = ENROWS - 1;
-    }
+		editor.curx = ECURX;
+		editor.cury = ECURY;
 
-    if (col < 0) {
-        col = 0;
-    } else if (col > (int) EROW[row].size) {
-        col = (int) EROW[row].size;
-    }
+		display_refresh();
+		return;
+	}
 
-    ECURX = col;
-    ECURY = row;
-    /* Keep legacy globals in sync with per-buffer fields for rendering */
-    editor.curx = ECURX;
-    editor.cury = ECURY;
+	if (row < 0) {
+		row = 0;
+	} else if (row >= ENROWS) {
+		row = ENROWS - 1;
+	}
 
-    display_refresh();
+	if (col < 0) {
+		col = 0;
+	} else if (col > (int) EROW[row].size) {
+		col = (int) EROW[row].size;
+	}
+
+	ECURX = col;
+	ECURY = row;
+
+	editor.curx = ECURX;
+	editor.cury = ECURY;
+
+	display_refresh();
 }
 
 
@@ -886,13 +898,13 @@ goto_line(void)
 		return;
 	}
 
- lineno = atoi(query);
- if (lineno < 1 || lineno > ENROWS) {
-     editor_set_status("Line number must be between 1 and %d.",
-                       ENROWS);
-     free(query);
-     return;
- }
+	lineno = atoi(query);
+	if (lineno < 1 || lineno > ENROWS) {
+		editor_set_status("Line number must be between 1 and %d.",
+		                  ENROWS);
+		free(query);
+		return;
+	}
 
 	jump_to_position(0, lineno - 1);
 	free(query);
@@ -1698,27 +1710,27 @@ editor_find(void)
 void
 editor_openfile(void)
 {
-    char *filename;
+	char	*filename = NULL;
+	buffer	*cur      = NULL;
+	int	 nb       = NULL;
 
-    /* Add TAB completion for path input */
-    filename = editor_prompt("Load file: %s", file_open_prompt_cb);
-    if (filename == NULL) {
-        return;
-    }
+	filename = editor_prompt("Load file: %s", file_open_prompt_cb);
+	if (filename == NULL) {
+		return;
+	}
 
-    /* If the only buffer is an unnamed, empty buffer, reuse it */
-    buffer *cur = buffer_current();
-    if (editor.bufcount == 1 && buffer_is_unnamed_and_empty(cur)) {
-        open_file(filename);
-        buffer_save_current();
-    } else {
-        /* Open into a new buffer */
-        int nb = buffer_add_empty();
-        buffer_switch(nb);
-        open_file(filename);
-        buffer_save_current();
-    }
-    free(filename);
+	cur = buffer_current();
+	if (editor.bufcount == 1 && buffer_is_unnamed_and_empty(cur)) {
+		open_file(filename);
+		buffer_save_current();
+	} else {
+		nb = buffer_add_empty();
+		buffer_switch(nb);
+		open_file(filename);
+		buffer_save_current();
+	}
+
+	free(filename);
 }
 
 
