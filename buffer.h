@@ -43,7 +43,6 @@ void		 buffer_prev(void);
 void		 buffer_switch_by_name(void);
 void		 buffer_close_current(void);
 const char	*buffer_name(buffer *b);
-/* Helpers */
 int		 buffer_is_unnamed_and_empty(const buffer *b);
 
 

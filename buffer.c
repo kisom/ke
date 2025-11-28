@@ -418,6 +418,7 @@ buffer_close_current(void)
 	int	 target  = 0;
 	int	 nb      = 0;
 
+	/* sanity check */
 	if (editor.curbuf < 0 || editor.curbuf >= editor.bufcount) {
 		editor_set_status("No buffer to close.");
 		return;

@@ -32,8 +32,11 @@ Toggle the mark.
 If the mark is set, unindent the region.
 .It C-k =
 If the mark is set, indent the region.
+.It C-k b
+Switch to a buffer.
 .It C-k c
-Clear (flush) the kill ring.
+Close the current buffer. If no other buffers are open, an empty
+buffer will be opened. To exit, use C-k q.
 .It C-k d
 Delete from the cursor to the end of the line.
 .It C-k C-d
@@ -41,7 +44,7 @@ Delete the entire line.
 .It C-k e
 Edit a new file. Also C-k C-e.
 .It C-k f
-Incremental find.
+Flush the kill ring.
 .It C-k g
 Go to a specific line.
 .It C-k j
@@ -50,6 +53,8 @@ Jump to the mark.
 List the number of lines of code in a saved file.
 .It C-k m
 Run make(1).
+.It C-k p
+Switch to the next buffer.
 .It C-k q
 Exit the editor. If the file has unsaved changes,
 a warning will be printed; a second C-k q will exit.
@@ -60,9 +65,9 @@ Reload the current buffer from disk.
 .It C-k s
 Save the file, prompting for a filename if needed. Also C-k C-s.
 .It C-k u
-Undo changes.
+Undo changes (not implemented; marking this k-command as taken).
 .It C-k U
-Redo changes.
+Redo changes (not implemented; marking this k-command as taken).
 .It C-k x
 save the file and exit. Also C-k C-x.
 .It C-k y
