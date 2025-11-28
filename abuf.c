@@ -28,19 +28,24 @@ ab_init(abuf *buf)
 void
 ab_init_cap(abuf *buf, const size_t cap)
 {
-	buf->b    = calloc(cap, 1);
-	buf->size = 0;
-	buf->cap  = cap;
+	ab_init(buf);
+
+	if (cap > 0) {
+		ab_resize(buf, cap);
+	}
 }
 
 
 void
 ab_resize(abuf *buf, size_t cap)
 {
-	cap = cap_growth(buf->cap, cap);
-	buf->b = realloc(buf->b, cap);
-	assert(buf->b != NULL);
+	char	*newbuf = NULL;
+
+	cap = cap_growth(buf->cap, cap) + 1;
+	newbuf = realloc(buf->b, cap);
+	assert(newbuf != NULL);
 	buf->cap = cap;
+	buf->b   = newbuf;
 }
 
 
