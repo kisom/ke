@@ -10,6 +10,10 @@
 struct	 buffer;
 
 
+#define		UNDO_DIR_UNDO		-1
+#define		UNDO_DIR_REDO		 1
+
+
 typedef enum undo_kind {
 	UNDO_INSERT  = 1 << 0,
 	UNDO_UNKNOWN = 1 << 1,
@@ -22,7 +26,7 @@ typedef struct undo_node {
 	abuf			 text;
 
 	struct undo_node	*next;
-	struct undo_node	*parent;
+	struct undo_node	*prev;
 
 } undo_node;
 
@@ -44,9 +48,9 @@ void		 undo_append(undo_tree *tree, abuf *buf);
 void		 undo_prependch(undo_tree *tree, char c);
 void		 undo_appendch(undo_tree *tree, char c);
 void		 undo_commit(undo_tree *tree);
-void		 undo_apply(struct buffer *buf);
-void		 editor_undo(struct buffer *buf);
-void		 editor_redo(struct buffer *buf);
+int		 undo_apply(struct buffer *buf, int direction);
+int		 editor_undo(struct buffer *buf);
+int		 editor_redo(struct buffer *buf);
 
 
 #endif

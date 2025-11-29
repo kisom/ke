@@ -74,6 +74,11 @@ ab_append(abuf *buf, const char *s, size_t len)
 void
 ab_append_ab(abuf *buf, const abuf *other)
 {
+	assert(buf != NULL);
+	if (other == NULL) {
+		return;
+	}
+
 	ab_append(buf, other->b, other->size);
 }
 
@@ -101,6 +106,18 @@ ab_prepend(abuf *buf, const char *s, const size_t len)
 
 	buf->b = nc;
 	buf->size += len;
+}
+
+
+void
+ab_prepend_ab(abuf *buf, const abuf *other)
+{
+	assert(buf != NULL);
+	if (other == NULL) {
+		return;
+	}
+
+	ab_prepend(buf, other->b, other->size);
 }
 
 

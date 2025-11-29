@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include "abuf.h"
+#include "buffer.h"
 #include "undo.h"
 
 
@@ -18,7 +19,7 @@ undo_node_new(undo_kind kind)
 	ab_init(&node->text);
 	
 	node->next = NULL;
-	node->parent = NULL;
+	node->next = NULL;
 
 	return node;
 }
@@ -101,7 +102,7 @@ undo_prepend(undo_tree *tree, abuf *buf)
 	assert(tree != NULL);
 	assert(tree->pending != NULL);
 
-	ab_prepend_ab(tree->pending->text, buf);
+	ab_prepend_ab(&tree->pending->text, buf);
 }
 
 
@@ -111,7 +112,7 @@ undo_append(undo_tree *tree, abuf *buf)
 	assert(tree != NULL);
 	assert(tree->pending != NULL);
 
-	ab_append_ab(tree->pending->text, buf);
+	ab_append_ab(&tree->pending->text, buf);
 }
 
 
@@ -121,7 +122,7 @@ undo_prependch(undo_tree *tree, char c)
 	assert(tree != NULL);
 	assert(tree->pending != NULL);
 
-	ab_prependch(tree->pending->text, c);
+	ab_prependch(&tree->pending->text, c);
 }
 
 
@@ -131,7 +132,7 @@ undo_appendch(undo_tree *tree, char c)
 	assert(tree != NULL);
 	assert(tree->pending != NULL);
 
-	ab_appendch(tree->pending->text, c);
+	ab_appendch(&tree->pending->text, c);
 }
 
 
@@ -144,10 +145,59 @@ undo_commit(undo_tree *tree)
 		return;
 	}
 
+	if (tree->root == NULL) {
+		assert(tree->current == NULL);
 
+		tree->root    = tree->pending;
+		tree->current = tree->pending;
+		tree->pending = NULL;
+
+		return;
+	}
+
+	assert(tree->current != NULL);
+	if (tree->current->next != NULL) {
+		undo_node_free_all(tree->current->next);
+	}
+
+	tree->pending->prev = tree->current;
+	tree->current->next = tree->pending;
+	tree->current       = tree->pending;
+	tree->pending       = NULL;
 }
 
 
-void		 undo_apply(struct buffer *buf);
-void		 editor_undo(struct buffer *buf);
-void		 editor_redo(struct buffer *buf);
+int
+undo_apply(struct buffer *buf, int direction)
+{
+	(void)buf;
+	(void)direction;
+
+	return 0;
+}
+
+
+int
+editor_undo(struct buffer *buf)
+{
+	if (buf == NULL) {
+		return 0;
+	}
+
+	undo_commit(&buf->tree);
+	return undo_apply(buf, UNDO_DIR_UNDO);
+	
+}
+
+
+int
+editor_redo(struct buffer *buf)
+{
+	if (buf == NULL) {
+		return 0;
+	}
+
+	undo_commit(&buf->tree);
+	return undo_apply(buf, UNDO_DIR_REDO);
+}
+
