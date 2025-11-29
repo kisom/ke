@@ -20,21 +20,27 @@ endif()
 include(GNUInstallDirs)
 
 set(SOURCES
-        core.c
         abuf.c
+        core.c
         term.c
         buffer.c
         editor.c
+        editing.c
+        killring.c
+        process.c
         undo.c
         main.c
 )
 
 set(HEADERS
-        core.h
         abuf.h
+        core.h
         term.h
         buffer.h
         editor.h
+        editing.h
+        killring.h
+        process.h
         undo.h
 )
 

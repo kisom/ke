@@ -10,7 +10,6 @@
 #include "buffer.h"
 #include "core.h"
 #include "editor.h"
-#include "undo.h"
 
 
 #define		NO_NAME		 "[No Name]"
@@ -275,7 +274,7 @@ buffer_add_empty(void)
 	buf->mark_curx = 0;
 	buf->mark_cury = 0;
 
-	undo_tree_init(&buf->tree);
+	undo_tree_init(&buf->undo);
 
 	editor.buffers[editor.bufcount] = buf;
 	idx                             = (int)editor.bufcount;

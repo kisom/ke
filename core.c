@@ -1,3 +1,4 @@
+#include <sys/stat.h>
 #include <assert.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -9,6 +10,7 @@
 
 
 #ifdef	INCLUDE_STRNSTR
+
 /*
  * Find the first occurrence of find in s, where the search is limited to the
  * first slen characters of s.
@@ -34,6 +36,40 @@ strnstr(const char *s, const char *find, size_t slen)
 	return ((char*)s);
 }
 #endif
+
+
+int
+path_is_dir(const char *path)
+{
+	struct stat st;
+
+	if (path == NULL) {
+		return 0;
+	}
+
+	if (stat(path, &st) == 0) {
+		return S_ISDIR(st.st_mode);
+	}
+
+	return 0;
+}
+
+
+size_t
+str_lcp2(const char *a, const char *b)
+{
+	size_t	 i = 0;
+
+	if (!a || !b) {
+		return 0;
+	}
+
+	while (a[i] && b[i] && a[i] == b[i]) {
+		i++;
+	}
+
+	return i;
+}
 
 
 void

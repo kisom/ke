@@ -5,10 +5,16 @@
 
 
 /* Terminal control/setup API */
-void enable_termraw(void);
-void disable_termraw(void);
-void setup_terminal(void);
-void display_clear(abuf *ab);
+void		 enable_termraw(void);
+void		 disable_termraw(void);
+void		 setup_terminal(void);
+void		 display_clear(abuf *ab);
+void		 draw_rows(abuf *ab);
+char		 status_mode_char(void);
+void		 draw_status_bar(abuf *ab);
+void		 draw_message_line(abuf *ab);
+void		 scroll(void);
+void		 display_refresh(void);
 
 /*
  * get_winsz uses the TIOCGWINSZ to get the window size.

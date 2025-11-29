@@ -15,7 +15,7 @@ typedef struct buffer {
 	int		 dirty;
 	int		 mark_set;
 	size_t		 mark_curx, mark_cury;
-	undo_tree	 tree;
+	undo_tree	 undo;
 } buffer;
 
 

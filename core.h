@@ -4,7 +4,18 @@
 #include <stddef.h>
 
 
-#define		INITIAL_CAPACITY	8
+#ifndef KE_VERSION
+#define KE_VERSION		"ke dev build"
+#endif
+
+
+#define ESCSEQ			"\x1b["
+#define	CTRL_KEY(key)		((key)&0x1f)
+#define TAB_STOP		8
+#define MSG_TIMEO		3
+
+#define	TAB_STOP		8
+#define	INITIAL_CAPACITY	8
 
 
 typedef enum key_press {
@@ -28,6 +39,8 @@ char	*strnstr(const char *s, const char *find, size_t slen);
 #define	INCLUDE_STRNSTR
 #endif
 
+int		 path_is_dir(const char *path);
+size_t		 str_lcp2(const char *a, const char *b);
 void		 swap_size_t(size_t *first, size_t *second);
 int 		 next_power_of_2(int n);
 int 		 cap_growth(int cap, int sz);

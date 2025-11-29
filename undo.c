@@ -1,5 +1,10 @@
+/*
+ * undo.c: ke's undo system
+ */
+
 #include <assert.h>
 #include <stdlib.h>
+
 #include "abuf.h"
 #include "buffer.h"
 #include "undo.h"
@@ -167,11 +172,43 @@ undo_commit(undo_tree *tree)
 }
 
 
+static int
+undo_apply_undo(struct buffer *buf)
+{
+	undo_node	*node = buf->undo.current;
+
+	switch (node->kind) {
+	case UNDO_INSERT:
+		break;
+	default:
+		return 0;
+	}
+
+	return 0;
+}
+
+
 int
 undo_apply(struct buffer *buf, int direction)
 {
-	(void)buf;
 	(void)direction;
+
+	if (buf == NULL) {
+		return 0;
+	}
+
+	undo_commit(&buf->undo);
+	if (buf->undo.current == NULL) {
+		return 0;
+	}
+
+	if (direction == UNDO_DIR_UNDO) {
+		return undo_apply_undo(buf);
+	} else if (direction == UNDO_DIR_UNDO) {
+		return 0;
+	} else {
+		return 0;
+	}
 
 	return 0;
 }
@@ -184,7 +221,7 @@ editor_undo(struct buffer *buf)
 		return 0;
 	}
 
-	undo_commit(&buf->tree);
+	undo_commit(&buf->undo);
 	return undo_apply(buf, UNDO_DIR_UNDO);
 	
 }
@@ -197,7 +234,7 @@ editor_redo(struct buffer *buf)
 		return 0;
 	}
 
-	undo_commit(&buf->tree);
+	undo_commit(&buf->undo);
 	return undo_apply(buf, UNDO_DIR_REDO);
 }
 

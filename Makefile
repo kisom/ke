@@ -11,8 +11,10 @@ LDFLAGS :=	-fsanitize=address
 
 all: $(TARGET) test.txt
 
-SRCS := main.c abuf.c core.c term.c buffer.c editor.c undo.c
-HDRS :=        abuf.h core.h term.h buffer.h editor.h undo.h
+SRCS := main.c abuf.c core.c term.c buffer.c editor.c editing.c killring.c \
+	       process.c undo.c
+HDRS :=        abuf.h core.h term.h buffer.h editor.h editing.c killring.h \
+	       process.h undo.h
 
 $(TARGET): $(SRCS)
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS) $(LDFLAGS)
