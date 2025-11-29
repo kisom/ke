@@ -1905,7 +1905,6 @@ move_cursor(const int16_t c, const int interactive)
 void
 newline(void)
 {
-	abuf	*row     = NULL;
 	size_t	 rhs_len = 0;
 	char	*tmp     = NULL;
 
@@ -1918,29 +1917,35 @@ newline(void)
 		ECURY++;
 		ECURX = 0;
 	} else {
-		row = &EROW[ECURY];
-		rhs_len = row->size - (size_t) ECURX;
+		/*
+		 * IMPORTANT: Do not keep a pointer to EROW[ECURY] across erow_insert(),
+		 * as erow_insert() may realloc the rows array and invalidate it.
+		 */
+		rhs_len = EROW[ECURY].size - (size_t)ECURX;
 		if (rhs_len > 0) {
 			tmp = malloc(rhs_len);
 			assert(tmp != NULL);
-			memcpy(tmp, &row->b[ECURX], rhs_len);
+			memcpy(tmp, &EROW[ECURY].b[ECURX], rhs_len);
 		}
 
-		row->size = ECURX;
-		if (row->cap <= row->size) {
-			ab_resize(row, row->size + 1);
-		}
-		row->b[row->size] = '\0';
-
-		erow_insert(ECURY + 1, tmp ? tmp : "", (int) rhs_len);
+		/* Insert the right-hand side as a new row first (may realloc rows). */
+		erow_insert(ECURY + 1, tmp ? tmp : "", (int)rhs_len);
 		if (tmp) {
 			free(tmp);
 		}
+
+		/* Now safely shrink the original row (re-fetch by index). */
+		EROW[ECURY].size = ECURX;
+		if (EROW[ECURY].cap <= EROW[ECURY].size) {
+			ab_resize(&EROW[ECURY], EROW[ECURY].size + 1);
+		}
+		EROW[ECURY].b[EROW[ECURY].size] = '\0';
+
 		ECURY++;
 		ECURX = 0;
 	}
 
-	editor.kill = 0;	/* BREAK THE KILL CHAIN \m/ */
+	editor.kill = 0; /* BREAK THE KILL CHAIN \m/ */
 	EDIRTY++;
 }
 
