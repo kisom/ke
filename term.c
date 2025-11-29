@@ -84,3 +84,4 @@ get_winsz(size_t *rows, size_t *cols)
 
     return 0;
 }
+

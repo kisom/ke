@@ -3,6 +3,7 @@
 
 #include "abuf.h"
 
+
 /* Terminal control/setup API */
 void enable_termraw(void);
 void disable_termraw(void);
@@ -18,5 +19,6 @@ void display_clear(abuf *ab);
  * Linux, at least.
  */
 int  get_winsz(size_t *rows, size_t *cols);
+
 
 #endif /* KE_TERM_H */

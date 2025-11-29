@@ -1719,12 +1719,10 @@ editor_openfile(void)
 	cur = buffer_current();
 	if (editor.bufcount == 1 && buffer_is_unnamed_and_empty(cur)) {
 		open_file(filename);
-		buffer_save_current();
 	} else {
 		nb = buffer_add_empty();
 		buffer_switch(nb);
 		open_file(filename);
-		buffer_save_current();
 	}
 
 	free(filename);
@@ -2891,7 +2889,6 @@ main(int argc, char *argv[])
 				pending_line = 0;
 			}
 
-			buffer_save_current();
 			first_loaded = 1;
 		} else {
 			nb = buffer_add_empty();
@@ -2901,8 +2898,6 @@ main(int argc, char *argv[])
 				jump_to_position(0, pending_line - 1);
 				pending_line = 0;
 			}
-
-			buffer_save_current();
 		}
 	}
 

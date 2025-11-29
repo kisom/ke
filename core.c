@@ -7,6 +7,7 @@
 
 #include "core.h"
 
+
 #ifdef	INCLUDE_STRNSTR
 /*
  * Find the first occurrence of find in s, where the search is limited to the
@@ -111,3 +112,4 @@ die(const char* s)
 	perror(s);
 	exit(1);
 }
+

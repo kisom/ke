@@ -16,7 +16,7 @@
  * Global editor instance
  */
 struct editor editor = {
-    .cols = 0,
+	.cols = 0,
 	.rows     = 0,
 	.mode     = 0,
 	.killring = NULL,
@@ -79,7 +79,6 @@ init_editor(void)
 void
 reset_editor(void)
 {
-	/* Reset the current buffer's contents/state. */
 	buffer *b = buffer_current();
 	if (b == NULL) {
 		return;
@@ -91,6 +90,7 @@ reset_editor(void)
 		}
 		free(b->row);
 	}
+
 	b->row = NULL;
 	b->nrows = 0;
 	b->rowoffs = 0;
@@ -107,3 +107,4 @@ reset_editor(void)
 	b->mark_curx = 0;
 	b->mark_cury = 0;
 }
+

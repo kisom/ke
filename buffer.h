@@ -19,9 +19,7 @@ typedef struct buffer {
 } buffer;
 
 
-/* Access current buffer and convenient aliases for file-specific fields */
-buffer		*buffer_current(void);
-
+buffer				*buffer_current(void);
 #define CURBUF			(buffer_current())
 #define EROW			(CURBUF->row)
 #define ENROWS			(CURBUF->nrows)

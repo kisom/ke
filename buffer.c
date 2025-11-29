@@ -10,6 +10,7 @@
 #include "buffer.h"
 #include "core.h"
 #include "editor.h"
+#include "undo.h"
 
 
 #define		NO_NAME		 "[No Name]"
@@ -222,12 +223,12 @@ buffer_name(buffer *b)
 void
 buffers_init(void)
 {
-    int	 idx = 0;
+	int	 idx = 0;
 
- editor.buffers  = NULL;
- editor.bufcount = 0;
- editor.curbuf   = 0;
- editor.bufcap	= 0;
+	editor.buffers  = NULL;
+	editor.bufcount = 0;
+	editor.curbuf   = 0;
+	editor.bufcap	= 0;
 
 	idx = buffer_add_empty();
 	buffer_switch(idx);
@@ -237,28 +238,29 @@ buffers_init(void)
 static void
 buffer_list_resize(void)
 {
-    buffer	**newlist = NULL;
+	buffer	**newlist = NULL;
 
-    if (editor.bufcount == editor.bufcap) {
-        editor.bufcap = (size_t)cap_growth((int)editor.bufcap, (int)editor.bufcount + 1);
+	if (editor.bufcount == editor.bufcap) {
+		editor.bufcap = (size_t)cap_growth((int)editor.bufcap,
+			(int)editor.bufcount + 1);
 
-        newlist = realloc(editor.buffers, sizeof(buffer *) * editor.bufcap);
-        assert(newlist != NULL);
-        editor.buffers = newlist;
-    }
+		newlist = realloc(editor.buffers, sizeof(buffer *) * editor.bufcap);
+		assert(newlist != NULL);
+		editor.buffers = newlist;
+	}
 }
 
 
 int
 buffer_add_empty(void)
 {
-    buffer	 *buf    = NULL;
-    int	 idx     = 0;
+	buffer	 *buf    = NULL;
+	int	 idx     = 0;
 
-    buffer_list_resize();
+	buffer_list_resize();
 
-    buf = calloc(1, sizeof(buffer));
-    assert(buf != NULL);
+	buf = calloc(1, sizeof(buffer));
+	assert(buf != NULL);
 
 	buf->curx      = 0;
 	buf->cury      = 0;
@@ -273,28 +275,23 @@ buffer_add_empty(void)
 	buf->mark_curx = 0;
 	buf->mark_cury = 0;
 
-    editor.buffers[editor.bufcount] = buf;
-    idx                             = (int)editor.bufcount;
-    editor.bufcount++;
-    return idx;
-}
+	undo_tree_init(&buf->tree);
 
-
-void
-buffer_save_current(void)
-{
-    /* No-op: editor no longer mirrors per-buffer fields */
-    (void)editor;
+	editor.buffers[editor.bufcount] = buf;
+	idx                             = (int)editor.bufcount;
+	editor.bufcount++;
+	return idx;
 }
 
 
 buffer *
 buffer_current(void)
 {
-    if (editor.bufcount == 0 || editor.curbuf >= editor.bufcount) {
-        return NULL;
-    }
-    return editor.buffers[editor.curbuf];
+	if (editor.bufcount == 0 || editor.curbuf >= editor.bufcount) {
+		return NULL;
+	}
+
+	return editor.buffers[editor.curbuf];
 }
 
 
@@ -328,58 +325,58 @@ buffer_is_unnamed_and_empty(const buffer *b)
 void
 buffer_switch(const int idx)
 {
-    buffer	*b = NULL;
+	buffer	*b = NULL;
 
-    if (idx < 0 || (size_t)idx >= editor.bufcount) {
-        return;
-    }
+	if (idx < 0 || (size_t)idx >= editor.bufcount) {
+		return;
+	}
 
-    if (editor.curbuf == (size_t)idx) {
-        return;
-    }
+	if (editor.curbuf == (size_t)idx) {
+		return;
+	}
 
-    b = editor.buffers[idx];
-    editor.curbuf  = (size_t)idx;
-    editor.dirtyex = 1;
-    editor_set_status("Switched to buffer %d: %s", editor.curbuf, buffer_name(b));
+	b = editor.buffers[idx];
+	editor.curbuf  = (size_t)idx;
+	editor.dirtyex = 1;
+	editor_set_status("Switched to buffer %d: %s", editor.curbuf, buffer_name(b));
 }
 
 
 void
 buffer_next(void)
 {
-    size_t idx = 0;
-
-    if (editor.bufcount <= 1) {
-        return;
-    }
-
-    idx = (editor.curbuf + 1) % editor.bufcount;
-    buffer_switch((int)idx);
+	size_t idx = 0;
+	
+	if (editor.bufcount <= 1) {
+		return;
+	}
+	
+	idx = (editor.curbuf + 1) % editor.bufcount;
+	buffer_switch((int)idx);
 }
 
 
 void
 buffer_prev(void)
 {
-    size_t	 idx = 0;
-
-    if (editor.bufcount <= 1) {
-        return;
-    }
-
-    idx = (editor.curbuf == 0) ? (editor.bufcount - 1) : (editor.curbuf - 1);
-    buffer_switch((int)idx);
+	size_t	 idx = 0;
+	
+	if (editor.bufcount <= 1) {
+		return;
+	}
+	
+	idx = (editor.curbuf == 0) ? (editor.bufcount - 1) : (editor.curbuf - 1);
+	buffer_switch((int)idx);
 }
 
 
 void
 buffer_close_current(void)
 {
-    buffer	*b   = NULL;
-    size_t	 closing = 0;
-    int	 target  = 0;
-    int	 nb      = 0;
+	buffer	*b   = NULL;
+	size_t	 closing = 0;
+	int	 target  = 0;
+	int	 nb      = 0;
 
 	/* sanity check */
 	if (editor.bufcount == 0 || editor.curbuf >= editor.bufcount) {
@@ -464,3 +461,4 @@ buffer_switch_by_name(void)
 
 	free(name);
 }
+
