@@ -1,11 +1,13 @@
 #include <stddef.h>
 
 #include "abuf.h"
-#include "editor.h"
 
 
 #ifndef KE_UNDO_H
 #define KE_UNDO_H
+
+
+struct	 buffer;
 
 
 typedef enum undo_kind {
@@ -42,9 +44,9 @@ void		 undo_append(undo_tree *tree, abuf *buf);
 void		 undo_prependch(undo_tree *tree, char c);
 void		 undo_appendch(undo_tree *tree, char c);
 void		 undo_commit(undo_tree *tree);
-void		 undo_apply(struct editor *editor);
-void		 editor_undo(undo_tree *tree);
-void		 editor_redo(undo_tree *tree);
+void		 undo_apply(struct buffer *buf);
+void		 editor_undo(struct buffer *buf);
+void		 editor_redo(struct buffer *buf);
 
 
 #endif

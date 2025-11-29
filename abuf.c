@@ -72,6 +72,13 @@ ab_append(abuf *buf, const char *s, size_t len)
 
 
 void
+ab_append_ab(abuf *buf, const abuf *other)
+{
+	ab_append(buf, other->b, other->size);
+}
+
+
+void
 ab_prependch(abuf *buf, const char c)
 {
 	abuf_grow(buf, 1);

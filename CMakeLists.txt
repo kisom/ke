@@ -4,7 +4,7 @@ project(ke C)  # Specify C language explicitly
 set(CMAKE_C_STANDARD 99)
 set(KE_VERSION "2.1.1")
 
-set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g -Werror=stringop-truncation")
+set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -D_XOPEN_SOURCE")
 
 # Optionally enable AddressSanitizer (ASan)
@@ -19,16 +19,28 @@ endif()
 
 include(GNUInstallDirs)
 
-# Add executable
-add_executable(ke
+set(SOURCES
+        core.c
         abuf.c
         term.c
         buffer.c
         editor.c
-        core.c
-        core.h
+        undo.c
         main.c
 )
+
+set(HEADERS
+        core.h
+        abuf.h
+        term.h
+        buffer.h
+        editor.h
+        undo.h
+)
+
+
+# Add executable
+add_executable(ke ${SOURCES} ${HEADERS})
 target_compile_definitions(ke PRIVATE KE_VERSION="ke version ${KE_VERSION}")
 install(TARGETS ke RUNTIME DESTINATION bin)
 install(FILES ke.1 TYPE MAN)

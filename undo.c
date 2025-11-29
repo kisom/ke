@@ -27,8 +27,6 @@ undo_node_new(undo_kind kind)
 void
 undo_node_free(undo_node *node)
 {
-	undo_node	*next = NULL;
-
 	if (node == NULL) {
 		return;
 	}
@@ -100,15 +98,56 @@ undo_begin(undo_tree *tree, undo_kind kind)
 void
 undo_prepend(undo_tree *tree, abuf *buf)
 {
+	assert(tree != NULL);
+	assert(tree->pending != NULL);
+
+	ab_prepend_ab(tree->pending->text, buf);
+}
+
+
+void
+undo_append(undo_tree *tree, abuf *buf)
+{
+	assert(tree != NULL);
+	assert(tree->pending != NULL);
+
+	ab_append_ab(tree->pending->text, buf);
+}
+
+
+void
+undo_prependch(undo_tree *tree, char c)
+{
+	assert(tree != NULL);
+	assert(tree->pending != NULL);
+
+	ab_prependch(tree->pending->text, c);
+}
+
+
+void
+undo_appendch(undo_tree *tree, char c)
+{
+	assert(tree != NULL);
+	assert(tree->pending != NULL);
+
+	ab_appendch(tree->pending->text, c);
+}
+
+
+void
+undo_commit(undo_tree *tree)
+{
+	assert(tree != NULL);
+
+	if (tree->pending == NULL) {
+		return;
+	}
+
 
 }
 
 
-void		 undo_append(undo_tree *tree, abuf *buf);
-void		 undo_prependch(undo_tree *tree, char c);
-void		 undo_appendch(undo_tree *tree, char c);
-void		 undo_commit(undo_tree *tree);
-void		 undo_apply(struct editor *editor);
-void		 editor_undo(undo_tree *tree);
-void		 editor_redo(undo_tree *tree);
-
+void		 undo_apply(struct buffer *buf);
+void		 editor_undo(struct buffer *buf);
+void		 editor_redo(struct buffer *buf);
