@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 project(ke C)  # Specify C language explicitly
 
 set(CMAKE_C_STANDARD 99)
-set(KE_VERSION "2.1.1")
+set(KE_VERSION "2.1.2")
 
 set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic -Wshadow -Werror -std=c99 -g -Werror=stringop-truncation")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_DEFAULT_SOURCE -D_XOPEN_SOURCE")
@@ -35,4 +35,3 @@ install(FILES ke.1 TYPE MAN)
 
 install(TARGETS ke RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES ke.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
-
